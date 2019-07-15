@@ -337,7 +337,7 @@ dist:
 	  --transform='s,.*/.version,$(DIST_SUBDIR)/src/scripts/.version,' \
 	  $(BR)/.version
 	@$(RM) $(BR)/.version $(DIST_FILE).xz
-	@xz -v --threads=0 $(DIST_FILE)
+	@xz -v --threads=0 <$(DIST_FILE) >$(DIST_FILE).xz && $(RM) $(DIST_FILE)
 	@$(RM) $(BR)/vpp-latest.tar.xz
 	@ln -rs $(DIST_FILE).xz $(BR)/vpp-latest.tar.xz
 

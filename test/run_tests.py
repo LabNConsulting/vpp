@@ -788,8 +788,9 @@ if __name__ == '__main__':
 
     step = framework.BoolEnvironmentVariable("STEP")
     force_foreground = framework.BoolEnvironmentVariable("FORCE_FOREGROUND")
+    pdebug = framework.BoolEnvironmentVariable("PDB")
 
-    run_interactive = debug or step or force_foreground
+    run_interactive = debug or step or force_foreground or pdebug
 
     try:
         num_cpus = len(os.sched_getaffinity(0))
@@ -848,7 +849,7 @@ if __name__ == '__main__':
 
     filter_cb = FilterByTestOption(filter_file, filter_class, filter_func)
 
-    ignore_path = os.getenv("VENV_PATH", None)
+    ignore_path = os.getenv("VENV_PATH", os.getenv("VIRTUAL_ENV", None))
     cb = SplitToSuitesCallback(filter_cb)
     for d in args.dir:
         print("Adding tests from directory tree %s" % d)

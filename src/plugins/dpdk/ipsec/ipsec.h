@@ -18,6 +18,7 @@
 #include <vnet/vnet.h>
 #include <vppinfra/cache.h>
 #include <vnet/ipsec/ipsec.h>
+#include <dpdk/buffer.h>
 
 #undef always_inline
 #include <rte_config.h>
@@ -329,16 +330,33 @@ crypto_enqueue_ops (vlib_main_t * vm, crypto_worker_main_t * cwm,
       n_ops = res->n_ops < n_ops ? res->n_ops : n_ops;
       enq = rte_cryptodev_enqueue_burst (res->dev_id, res->qp_id,
 					 res->ops, n_ops);
-      ASSERT (n_ops == enq);
+      /* XXX chopps: i've hit this enq == 161 and n_ops == 162 */
+      /* XXX chopps: this means it failed to queue or other bad params */
+      /* XXX chopps: except the check against 1/2 of the queue should protect us */
+      // ASSERT (n_ops == enq);
+      if (n_ops != enq)
+        clib_warning("%s: failed to queue all expected packets %u vs %u", __FUNCTION__,
+                     enq, n_ops);
       res->inflights[encrypt] += enq;
 
       if (PREDICT_FALSE (enq < res->n_ops))
 	{
-	  crypto_free_ops (numa, &res->ops[enq], res->n_ops - enq);
-	  vlib_buffer_free (vm, &res->bi[enq], res->n_ops - enq);
+          /*
+           * Here is where we didn't have enough resources to queue everything
+           * Could be failure inside the burst routine, or lack of queue descriptors
+           */
 
-          vlib_node_increment_counter (vm, node_index, error,
-				       res->n_ops - enq);
+          /* Free any source chains that we failed to queue */
+          u32 free_bis[res->n_ops - enq], *free_bi = free_bis;
+          struct rte_crypto_op **op = &res->ops[enq], **eop = &res->ops[res->n_ops];
+          for (; op < eop; op++)
+            if (op[0]->sym->m_dst)
+              *free_bi++ = vlib_get_buffer_index (vm, vlib_buffer_from_rte_mbuf (op[0]->sym->m_src));
+          vlib_buffer_free (vm, free_bis, free_bi - free_bis);
+          crypto_free_ops (numa, &res->ops[enq], res->n_ops - enq);
+          /* Not sure why this *only use* of res->bi below is optimizing for... */
+          vlib_buffer_free (vm, &res->bi[enq], res->n_ops - enq);
+          vlib_node_increment_counter (vm, node_index, error, res->n_ops - enq);
         }
       res->n_ops = 0;
     }
@@ -354,7 +372,8 @@ crypto_set_icb (dpdk_gcm_cnt_blk * icb, u32 salt, u32 seq, u32 seq_hi)
 }
 
 static_always_inline void
-crypto_op_setup (u8 is_aead, struct rte_mbuf *mb0,
+crypto_op_setup (u8 is_aead, struct rte_mbuf *mbsrc0,
+		 struct rte_mbuf *mbdst0,
 		 struct rte_crypto_op *op, void *session,
 		 u32 cipher_off, u32 cipher_len,
 		 u32 auth_off, u32 auth_len,
@@ -364,7 +383,12 @@ crypto_op_setup (u8 is_aead, struct rte_mbuf *mb0,
 
   sym_op = (struct rte_crypto_sym_op *) (op + 1);
 
-  sym_op->m_src = mb0;
+  /* This can be true for NULL cipher */
+  /* if (mbsrc0->nb_segs > 1) */
+  /*   ASSERT (mbdst0 != NULL); */
+
+  sym_op->m_src = mbsrc0;
+  sym_op->m_dst = mbdst0;
   sym_op->session = session;
 
   if (is_aead)
@@ -391,6 +415,39 @@ crypto_op_setup (u8 is_aead, struct rte_mbuf *mb0,
       sym_op->auth.digest.phys_addr = digest_paddr;
     }
 }
+
+/*
+ * Get the length of the buffer chain, and fixup the mbuf pointers
+ */
+static inline u16
+dpdk_buffer_length_in_chain_fixup (vlib_main_t * vm, vlib_buffer_t * b0,
+				   vlib_buffer_t ** lastb0)
+{
+  int maybe_multiseg;
+  u16 len;
+
+  if (PREDICT_FALSE ((b0->flags & VLIB_BUFFER_NEXT_PRESENT) == 0))
+    {
+      maybe_multiseg = 0;
+      len = b0->current_length;
+    }
+  else
+    {
+      maybe_multiseg = 1;
+      if (PREDICT_TRUE (b0->flags & VLIB_BUFFER_TOTAL_LENGTH_VALID))
+	len =
+	  b0->current_length + b0->total_length_not_including_first_buffer;
+      else
+	{
+	  /* XXX we never want to hit this in IPTFS */
+	  ASSERT (0);
+	  len = vlib_buffer_length_in_chain (vm, b0);
+	}
+    }
+  *lastb0 = dpdk_validate_rte_mbuf (vm, b0, maybe_multiseg);
+  return len;
+}
+
 
 #endif /* __DPDK_IPSEC_H__ */
 

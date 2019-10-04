@@ -170,7 +170,6 @@ dpdk_esp_decrypt_inline (vlib_main_t * vm,
 	  CLIB_PREFETCH (mb0, CLIB_CACHE_LINE_BYTES, STORE);
 
 	  op = ops[0];
-	  ops += 1;
 	  ASSERT (op->status == RTE_CRYPTO_OP_STATUS_NOT_PROCESSED);
 
 	  dpdk_op_priv_t *priv = crypto_op_get_priv (op);
@@ -265,13 +264,19 @@ dpdk_esp_decrypt_inline (vlib_main_t * vm,
 	      b0->flags |= VNET_BUFFER_F_IS_IP4;
 	    }
 
-	  /* FIXME multi-seg */
+	  vlib_buffer_t *lastb0;
+	  u16 chainlen = dpdk_buffer_length_in_chain_fixup (vm, b0, &lastb0);
+
 	  vlib_increment_combined_counter
-	    (&ipsec_sa_counters, thread_index, sa_index0,
-	     1, b0->current_length);
+	    (&ipsec_sa_counters, thread_index, sa_index0, 1, chainlen);
+
+	  /* FIXME multi-seg -- need to support decrypt into new buffer */
+	  ASSERT (lastb0 == b0);
 
 	  res->ops[res->n_ops] = op;
-	  res->bi[res->n_ops] = bi0;
+	  /* We're going to actually use this op */
+	  ops += 1;
+	  res->bi[res->n_ops] = priv->bi;
 	  res->n_ops += 1;
 
 	  /* Convert vlib buffer to mbuf */
@@ -297,6 +302,7 @@ dpdk_esp_decrypt_inline (vlib_main_t * vm,
 		vlib_node_increment_counter (vm, dpdk_esp4_decrypt_node.index,
 					     ESP_DECRYPT_ERROR_BAD_LEN, 1);
 	      res->n_ops -= 1;
+	      ops--;
 	      to_next[0] = bi0;
 	      to_next += 1;
 	      n_left_to_next -= 1;
@@ -359,8 +365,9 @@ dpdk_esp_decrypt_inline (vlib_main_t * vm,
 		}
 	    }
 
-	  crypto_op_setup (is_aead, mb0, op, session, cipher_off, cipher_len,
-			   0, auth_len, aad, digest, digest_paddr);
+	  crypto_op_setup (is_aead, mb0, NULL, op, session, cipher_off,
+			   cipher_len, 0, auth_len, aad, digest,
+			   digest_paddr);
 	trace:
 	  if (PREDICT_FALSE (b0->flags & VLIB_BUFFER_IS_TRACED))
 	    {

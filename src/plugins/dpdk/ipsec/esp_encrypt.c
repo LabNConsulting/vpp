@@ -49,6 +49,7 @@ typedef enum
  _(ENQ_FAIL, "Enqueue encrypt failed (queue full)")     \
  _(DISCARD, "Not enough crypto operations")         \
  _(SESSION, "Failed to get crypto session")         \
+ _(NODST, "Failed to get dst buffer for chained source")       \
  _(NOSUP, "Cipher/Auth not supported")
 
 
@@ -75,8 +76,12 @@ typedef struct
 {
   ipsec_crypto_alg_t crypto_alg;
   ipsec_integ_alg_t integ_alg;
+  u32 spi;
+  u32 seq;
+  u32 seq_hi;
   u16 iv_size;
   u16 trunc_size;
+  u8 pad_bytes;
   u8 next_header;
   u8 packet_data[64];
 } esp_encrypt_trace_t;
@@ -92,13 +97,19 @@ format_esp_encrypt_trace (u8 * s, va_list * args)
   u32 indent = format_get_indent (s), offset;
 
   s =
-    format (s, "cipher %U auth %U iv_size %u trunc_size %u next_header %u\n",
-	    format_ipsec_crypto_alg, t->crypto_alg, format_ipsec_integ_alg,
-	    t->integ_alg, t->iv_size, t->trunc_size, t->next_header);
+    format (s, "spi %u seq %u seq_hi %u iv_size %u trunc_size %u\n"
+	    "%Upad_bytes %u next_header %u\n",
+	    t->spi, t->seq, t->seq_hi, t->iv_size, t->trunc_size,
+	    format_white_space, indent, t->pad_bytes, t->next_header);
+  format (s, "%Ucipher %U auth %U\n",
+	  format_white_space, indent,
+	  format_ipsec_crypto_alg, t->crypto_alg,
+	  format_ipsec_integ_alg, t->integ_alg);
 
   if (t->next_header == IP_PROTOCOL_IPTFS)
-    s = format (s, "%U%U", format_white_space, indent, format_iptfs_header,
-		t->packet_data);
+    s =
+      format (s, "%U%U", format_white_space, indent + 2, format_iptfs_header,
+	      t->packet_data);
   else
     {
       if ((ih4->ip_version_and_header_length & 0xF0) == 0x60)
@@ -119,6 +130,40 @@ format_esp_encrypt_trace (u8 * s, va_list * args)
     }
 
   return s;
+}
+
+#define CHOPPS_DBG 0
+
+static inline vlib_buffer_t *
+dpdk_get_dst_buffer (vlib_main_t * vm, u32 bi, struct rte_mbuf **mb,
+		     vlib_buffer_t * src)
+{
+  vlib_buffer_t *b = vlib_get_buffer (vm, bi);
+  VLIB_BUFFER_TRACE_TRAJECTORY_INIT (b);
+
+  // Too noisy.
+  // iptfs_pkt_debug ("%s: buffer %u", __FUNCTION__, bi);
+
+  // Is this right??
+  // b->flags |= VNET_BUFFER_F_LOCALLY_ORIGINATED;
+
+  vnet_buffer (b)->ipsec.sad_index = vnet_buffer (src)->ipsec.sad_index;
+  vnet_buffer (b)->sw_if_index[VLIB_RX] =
+    vnet_buffer (src)->sw_if_index[VLIB_RX];
+  vnet_buffer (b)->sw_if_index[VLIB_TX] =
+    vnet_buffer (src)->sw_if_index[VLIB_TX];
+
+  /* Start with no data */
+  b->flags |=
+    VLIB_BUFFER_TOTAL_LENGTH_VALID | (src->flags & VLIB_BUFFER_IS_TRACED);
+  b->current_data = 0;
+  b->current_length = 0;
+
+  *mb = rte_mbuf_from_vlib_buffer (b);
+  rte_pktmbuf_reset (*mb);
+  b->flags |= VLIB_BUFFER_EXT_HDR_VALID;
+
+  return b;
 }
 
 always_inline uword
@@ -182,8 +227,8 @@ dpdk_esp_encrypt_inline (vlib_main_t * vm,
 	  esp_footer_t *f0;
 	  u8 next_hdr_type;
 	  u32 iv_size;
-	  u16 orig_sz;
 	  u8 trunc_size = 0;
+	  u8 pad_bytes = 0;
 	  u16 rewrite_len;
 	  u16 udp_encap_adv = 0;
 	  struct rte_mbuf *mb0;
@@ -205,8 +250,8 @@ dpdk_esp_encrypt_inline (vlib_main_t * vm,
 
 	  /* ih0/ih6_0 */
 	  CLIB_PREFETCH (ih0, sizeof (ih6_0[0]), LOAD);
-	  /* f0 */
-	  CLIB_PREFETCH (vlib_buffer_get_tail (b0), 20, STORE);
+	  if ((b0->flags & VLIB_BUFFER_NEXT_PRESENT) == 0)
+	    CLIB_PREFETCH (vlib_buffer_get_tail (b0), 20, STORE);
 	  /* mb0 */
 	  CLIB_PREFETCH (mb0, CLIB_CACHE_LINE_BYTES, STORE);
 
@@ -221,7 +266,6 @@ dpdk_esp_encrypt_inline (vlib_main_t * vm,
 	    }
 
 	  op = ops[0];
-	  ops += 1;
 	  ASSERT (op->status == RTE_CRYPTO_OP_STATUS_NOT_PROCESSED);
 
 	  dpdk_op_priv_t *priv = crypto_op_get_priv (op);
@@ -242,6 +286,17 @@ dpdk_esp_encrypt_inline (vlib_main_t * vm,
 	    }
 	  else
 	    sa_index0 = vnet_buffer (b0)->ipsec.sad_index;
+
+	  /*
+	   * We need to do this very earlier (before drops) so that the mbufs
+	   * are fixed up, otherwise they might not be freed on error!
+	   */
+	  vlib_buffer_t *lastb0;
+	  u16 orig_sz = dpdk_buffer_length_in_chain_fixup (vm, b0, &lastb0);
+
+	  /* Now that we have the lastb0 prefetch the tail */
+	  if (b0->flags & VLIB_BUFFER_NEXT_PRESENT)
+	    CLIB_PREFETCH (vlib_buffer_get_tail (lastb0), 20, STORE);
 
 	  if (sa_index0 != last_sa_index)
 	    {
@@ -315,12 +370,46 @@ dpdk_esp_encrypt_inline (vlib_main_t * vm,
 	      goto trace;
 	    }
 
-	  orig_sz = b0->current_length;
+	  vlib_buffer_t *dst_b0 = NULL;
+	  struct rte_mbuf *lastmb0;
+	  struct rte_mbuf *dst_mb0 = NULL;
+	  u32 dst_bi0 = ~0u;
 
-	  /* TODO multi-seg support - total_length_not_including_first_buffer */
-	  vlib_increment_combined_counter
-	    (&ipsec_sa_counters, thread_index, sa_index0,
-	     1, b0->current_length);
+	  lastmb0 = rte_mbuf_from_vlib_buffer (lastb0);
+
+	  /* The NULL cipher device doesn't copy to a dest buffer */
+	  if (lastb0 != b0 && cipher_alg->alg != RTE_CRYPTO_CIPHER_NULL)
+	    {
+	      /* We have a chain, we need a destination buffer */
+	      if (PREDICT_FALSE (!vlib_buffer_alloc (vm, &dst_bi0, 1)))
+		{
+		  clib_warning
+		    ("unable to get desitination crypt obuffer SA %u by thread index %u",
+		     sa_index0, thread_idx);
+		  if (is_ip6)
+		    vlib_node_increment_counter (vm,
+						 dpdk_esp6_encrypt_node.index,
+						 ESP_ENCRYPT_ERROR_NODST, 1);
+		  else
+		    vlib_node_increment_counter (vm,
+						 dpdk_esp4_encrypt_node.index,
+						 ESP_ENCRYPT_ERROR_NODST, 1);
+		  to_next[0] = bi0;
+		  to_next += 1;
+		  n_left_to_next -= 1;
+		  goto trace;
+		}
+	      dst_b0 = dpdk_get_dst_buffer (vm, dst_bi0, &dst_mb0, b0);
+	      /* This is the buffer that will get sent on to the next node */
+	      priv->bi = dst_bi0;
+	    }
+
+	  /* -------------------- */
+	  /* No fail from here on */
+	  /* -------------------- */
+
+	  vlib_increment_combined_counter (&ipsec_sa_counters, thread_index,
+					   sa_index0, 1, orig_sz);
 
 	  /* Update tunnel interface tx counters */
 	  /* XXX chopps: so is_tun is never set from IPTFS how do we track the stats? */
@@ -328,10 +417,13 @@ dpdk_esp_encrypt_inline (vlib_main_t * vm,
 	    vlib_increment_combined_counter
 	      (vim->combined_sw_if_counters + VNET_INTERFACE_COUNTER_TX,
 	       thread_index, vnet_buffer (b0)->sw_if_index[VLIB_TX],
-	       1, b0->current_length);
+	       1, orig_sz);
 
 	  res->ops[res->n_ops] = op;
-	  res->bi[res->n_ops] = bi0;
+	  /* We're actually going to use this op */
+	  ops++;
+	  /* this is an expensive optimization just for freeing fast on error */
+	  res->bi[res->n_ops] = priv->bi;
 	  res->n_ops += 1;
 
 	  dpdk_gcm_cnt_blk *icb = &priv->cb;
@@ -344,6 +436,7 @@ dpdk_esp_encrypt_inline (vlib_main_t * vm,
 	  /* if UDP encapsulation is used adjust the address of the IP header */
 	  if (ipsec_sa_is_set_UDP_ENCAP (sa0) && !is_ip6)
 	    udp_encap_adv = sizeof (udp_header_t);
+	  u16 adv = 0;
 
 	  if (ipsec_sa_is_set_IS_TUNNEL (sa0))
 	    {
@@ -352,7 +445,7 @@ dpdk_esp_encrypt_inline (vlib_main_t * vm,
 		{
 		  /* in tunnel mode send it back to FIB */
 		  priv->next = DPDK_CRYPTO_INPUT_NEXT_IP4_LOOKUP;
-		  u8 adv = sizeof (ip4_header_t) + udp_encap_adv +
+		  adv = sizeof (ip4_header_t) + udp_encap_adv +
 		    sizeof (esp_header_t) + iv_size;
 		  vlib_buffer_advance (b0, -adv);
 		  oh0 = vlib_buffer_get_current (b0);
@@ -398,7 +491,7 @@ dpdk_esp_encrypt_inline (vlib_main_t * vm,
 		  /* in tunnel mode send it back to FIB */
 		  priv->next = DPDK_CRYPTO_INPUT_NEXT_IP6_LOOKUP;
 
-		  u8 adv =
+		  adv =
 		    sizeof (ip6_header_t) + sizeof (esp_header_t) + iv_size;
 		  vlib_buffer_advance (b0, -adv);
 		  oh6_0 = vlib_buffer_get_current (b0);
@@ -443,7 +536,7 @@ dpdk_esp_encrypt_inline (vlib_main_t * vm,
 		  priv->next = DPDK_CRYPTO_INPUT_NEXT_INTERFACE_OUTPUT;
 		  rewrite_len = vnet_buffer (b0)->ip.save_rewrite_length;
 		}
-	      u16 adv = sizeof (esp_header_t) + iv_size + udp_encap_adv;
+	      adv = sizeof (esp_header_t) + iv_size + udp_encap_adv;
 	      vlib_buffer_advance (b0, -adv - rewrite_len);
 	      u8 *src = ((u8 *) ih0) - rewrite_len;
 	      u8 *dst = vlib_buffer_get_current (b0);
@@ -493,20 +586,44 @@ dpdk_esp_encrypt_inline (vlib_main_t * vm,
 	  ASSERT (is_pow2 (cipher_alg->boundary));
 	  u16 mask = cipher_alg->boundary - 1;
 	  u16 pad_payload_len = ((orig_sz + 2) + mask) & ~mask;
-	  u8 pad_bytes = pad_payload_len - 2 - orig_sz;
+	  pad_bytes = pad_payload_len - 2 - orig_sz;
 
-	  u16 avail = vlib_buffer_put_space_avail (vm, b0);
+	  u16 avail = vlib_buffer_put_space_avail (vm, lastb0);
+
 	  if (avail < pad_bytes + 2 + trunc_size)
 	    {
 	      clib_warning
-		("%s: XXX BUG avail: %u ask %u (pad_bytes %u trunc_size %u + 2), cdata %u clen %u",
+		("%s: XXX BUG avail: %u ask %u (pad_bytes %u trunc_size %u + 2), cdata %u clen %u %u",
 		 __FUNCTION__, avail, pad_bytes + 2 + trunc_size, pad_bytes,
-		 trunc_size, b0->current_data, b0->current_length);
+		 trunc_size, b0->current_data, b0->current_length,
+		 b0->total_length_not_including_first_buffer);
 	    }
+
+	  /*
+	   * Need to deal with possible indirect buffer here, this is really
+	   * tricky as we have to be pointing at the tail of the indirect buffer
+	   * or we'll be overwriting the indirect buffer data. There's a KISS
+	   * case here for just never allowing the lastb0 to be indirect.
+	   */
 	  u8 *padding =
-	    vlib_buffer_put_uninit (b0, pad_bytes + 2 + trunc_size);
+	    vlib_buffer_put_uninit_ind (lastb0, pad_bytes + 2 + trunc_size);
+
+	  // b0->flags |= VLIB_BUFFER_TOTAL_LENGTH_VALID;
+	  ASSERT ((b0->flags & VLIB_BUFFER_NEXT_PRESENT) == 0 ||
+		  (b0->flags & VLIB_BUFFER_TOTAL_LENGTH_VALID));
+
+	  /* Now we must update the validated lastb0 mbuf */
+	  lastmb0->data_len += pad_bytes + 2 + trunc_size;
+	  lastmb0->pkt_len += pad_bytes + 2 + trunc_size;
+	  if (b0 != lastb0)
+	    {
+	      b0->total_length_not_including_first_buffer +=
+		pad_bytes + 2 + trunc_size;
+	      mb0->pkt_len += pad_bytes + 2 + trunc_size;
+	    }
 
 	  /* The extra pad bytes would be overwritten by the digest */
+	  /* XXX chopps: why do this, why not just use the pad length? */
 	  if (pad_bytes)
 	    clib_memcpy_fast (padding, pad_data, 16);
 
@@ -516,14 +633,15 @@ dpdk_esp_encrypt_inline (vlib_main_t * vm,
 
 	  if (oh6_0)
 	    {
-	      u16 len = b0->current_length - sizeof (ip6_header_t);
+	      u16 len = vlib_buffer_length_in_chain (vm, b0);
+	      len -= sizeof (ip6_header_t);
 	      oh6_0->ip6.payload_length =
 		clib_host_to_net_u16 (len - rewrite_len);
 	    }
 	  else if (oh0)
 	    {
-	      oh0->ip4.length =
-		clib_host_to_net_u16 (b0->current_length - rewrite_len);
+	      u16 len = vlib_buffer_length_in_chain (vm, b0);
+	      oh0->ip4.length = clib_host_to_net_u16 (len - rewrite_len);
 	      oh0->ip4.checksum = ip4_header_checksum (&oh0->ip4);
 	      if (ipsec_sa_is_set_UDP_ENCAP (sa0) && ouh0)
 		{
@@ -536,34 +654,63 @@ dpdk_esp_encrypt_inline (vlib_main_t * vm,
 	  else			/* should never happen */
 	    clib_warning ("No outer header found for ESP packet");
 
-	  b0->flags |= VLIB_BUFFER_TOTAL_LENGTH_VALID;
+	  /* fixup the first mbuf for the buffer advance done above */
+	  mb0->data_len += adv + rewrite_len;
+	  mb0->pkt_len += adv + rewrite_len;
+	  mb0->data_off -= adv + rewrite_len;
 
-	  /* mbuf packet starts at ESP header */
-	  mb0->data_len = vlib_buffer_get_tail (b0) - ((u8 *) esp0);
-	  mb0->pkt_len = vlib_buffer_get_tail (b0) - ((u8 *) esp0);
-	  mb0->data_off = ((void *) esp0) - mb0->buf_addr;
-
-	  u32 cipher_off, cipher_len, auth_len = 0;
-	  u32 *aad = NULL;
-
-	  u8 *digest = vlib_buffer_get_tail (b0) - trunc_size;
-	  u64 digest_paddr =
-	    mb0->buf_physaddr + digest - ((u8 *) mb0->buf_addr);
+	  /* cipher offset starts after IV since we advanced that earlier */
+	  u32 cipher_off = adv + rewrite_len;
+	  u32 cipher_len = pad_payload_len;
 
 	  if (!is_aead && (cipher_alg->alg == RTE_CRYPTO_CIPHER_AES_CBC ||
 			   cipher_alg->alg == RTE_CRYPTO_CIPHER_NULL))
 	    {
-	      cipher_off = sizeof (esp_header_t);
-	      cipher_len = iv_size + pad_payload_len;
+	      /* iv is included in cipher text */
+	      cipher_off -= iv_size;
+	      cipher_len += iv_size;
 	    }
 	  else			/* CTR/GCM */
 	    {
 	      u32 *esp_iv = (u32 *) (esp0 + 1);
 	      esp_iv[0] = sa0->seq;
 	      esp_iv[1] = sa0->seq_hi;
+	    }
 
-	      cipher_off = sizeof (esp_header_t) + iv_size;
-	      cipher_len = pad_payload_len;
+	  u32 auth_len = 0;
+	  u32 *aad = NULL;
+	  u8 *digest;
+	  u64 digest_paddr;
+
+	  /* XXXC check this */
+	  if (dst_mb0)
+	    {
+	      /* copy up to cipher text into dst */
+	      /* We might be able to reuse the first source buffer by chaining
+	         the dest to it after! */
+	      u8 *pktstart = vlib_buffer_get_current (b0);
+	      u8 *dststart = vlib_buffer_get_current (dst_b0);
+	      clib_memcpy_fast (dststart, pktstart, adv + rewrite_len);
+	      dst_b0->current_length = mb0->pkt_len;
+	      dpdk_validate_rte_mbuf (vm, dst_b0, 0);
+
+	      /* this is actually wrong for indirect, ptr is from buffer, then
+	         buf_addr (copied in indirect case) is subtracted from it, but
+	         the dst is not indirect so... */
+	      digest = vlib_buffer_get_tail (dst_b0) - trunc_size;
+	      digest_paddr =
+		dst_mb0->buf_physaddr + digest - ((u8 *) dst_mb0->buf_addr);
+	    }
+	  else
+	    {
+	      /*
+	       * XXX don't really need _ind here as the only chained/indirect
+	       * w/o a dst buffer is NULL crypto which won't use the digest, but
+	       * let's not be overly tricky
+	       */
+	      digest = vlib_buffer_get_tail_ind (lastb0) - trunc_size;
+	      digest_paddr =
+		lastmb0->buf_physaddr + digest - ((u8 *) lastmb0->buf_addr);
 	    }
 
 	  if (is_aead)
@@ -585,8 +732,12 @@ dpdk_esp_encrypt_inline (vlib_main_t * vm,
 	    }
 	  else
 	    {
-	      auth_len =
-		vlib_buffer_get_tail (b0) - ((u8 *) esp0) - trunc_size;
+	      if (b0 == lastb0)
+		auth_len =
+		  vlib_buffer_get_tail (b0) - ((u8 *) esp0) - trunc_size;
+	      else
+		auth_len = vlib_buffer_get_tail (b0) - ((u8 *) esp0) +
+		  b0->total_length_not_including_first_buffer - trunc_size;
 	      if (ipsec_sa_is_set_USE_ESN (sa0))
 		{
 		  u32 *_digest = (u32 *) digest;
@@ -595,19 +746,36 @@ dpdk_esp_encrypt_inline (vlib_main_t * vm,
 		}
 	    }
 
-	  crypto_op_setup (is_aead, mb0, op, session, cipher_off, cipher_len,
-			   0, auth_len, (u8 *) aad, digest, digest_paddr);
+	  // chopps: packet should never start with indirect as we modify it.
+	  ASSERT (dst_mb0 || (mb0->ol_flags & IND_ATTACHED_MBUF) == 0);
+	  // chopps: probably don't want to write into tail indirect, but if
+	  // performance demands we re-use the tail of finished indirect packets
+	  // we could.
+	  ASSERT (dst_mb0 || (lastmb0->ol_flags & IND_ATTACHED_MBUF) == 0);
+	  ASSERT (dst_b0 || (lastb0->flags & VLIB_BUFFER_INDIRECT) == 0);
+	  ASSERT (dst_b0 || (lastb0->flags & VLIB_BUFFER_ATTACHED) == 0);
+
+	  if (PREDICT_FALSE (im->tfs_encrypt_debug_cb != NULL))
+	    im->tfs_encrypt_debug_cb (vm, sa0, esp0, b0, dst_b0);
+
+	  crypto_op_setup (is_aead, mb0, dst_mb0, op, session, cipher_off,
+			   cipher_len, 0, auth_len, (u8 *) aad, digest,
+			   digest_paddr);
 
 	trace:
 	  if (PREDICT_FALSE (b0->flags & VLIB_BUFFER_IS_TRACED))
 	    {
 	      esp_encrypt_trace_t *tr =
 		vlib_add_trace (vm, node, b0, sizeof (*tr));
+	      tr->spi = sa0->spi;
+	      tr->seq = sa0->seq;
+	      tr->seq_hi = sa0->seq_hi;
 	      tr->crypto_alg = sa0->crypto_alg;
 	      tr->integ_alg = sa0->integ_alg;
 	      tr->next_header = f0 ? f0->next_header : 0;
 	      tr->iv_size = iv_size;
 	      tr->trunc_size = trunc_size;
+	      tr->pad_bytes = pad_bytes;
 	      u8 *p = vlib_buffer_get_current (b0);
 	      if (!ipsec_sa_is_set_IS_TUNNEL (sa0) && !is_tun)
 		p += vnet_buffer (b0)->ip.save_rewrite_length;

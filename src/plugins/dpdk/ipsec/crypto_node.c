@@ -158,6 +158,7 @@ dpdk_crypto_dequeue (vlib_main_t * vm, crypto_worker_main_t * cwm,
   u8 numa = rte_socket_id ();
   u32 n_ops, total_n_deq, n_deq[2];
   u32 bis[VLIB_FRAME_SIZE], *bi;
+  u32 free_bis[VLIB_FRAME_SIZE], *free_bi;
   u16 nexts[VLIB_FRAME_SIZE], *next;
   struct rte_crypto_op **ops;
 
@@ -166,6 +167,7 @@ dpdk_crypto_dequeue (vlib_main_t * vm, crypto_worker_main_t * cwm,
   bi = bis;
   next = nexts;
   ops = cwm->ops;
+  free_bi = free_bis;
 
   n_ops = total_n_deq = rte_cryptodev_dequeue_burst (res->dev_id,
 						     res->qp_id,
@@ -216,6 +218,23 @@ dpdk_crypto_dequeue (vlib_main_t * vm, crypto_worker_main_t * cwm,
       n_deq[crypto_op_get_priv (op2)->encrypt] += 1;
       n_deq[crypto_op_get_priv (op3)->encrypt] += 1;
 
+      if (op0->sym->m_dst)
+	*free_bi++ =
+	  vlib_get_buffer_index (vm,
+				 vlib_buffer_from_rte_mbuf (op0->sym->m_src));
+      if (op1->sym->m_dst)
+	*free_bi++ =
+	  vlib_get_buffer_index (vm,
+				 vlib_buffer_from_rte_mbuf (op1->sym->m_src));
+      if (op2->sym->m_dst)
+	*free_bi++ =
+	  vlib_get_buffer_index (vm,
+				 vlib_buffer_from_rte_mbuf (op2->sym->m_src));
+      if (op3->sym->m_dst)
+	*free_bi++ =
+	  vlib_get_buffer_index (vm,
+				 vlib_buffer_from_rte_mbuf (op3->sym->m_src));
+
       dpdk_crypto_input_check_op (vm, node, op0, next + 0);
       dpdk_crypto_input_check_op (vm, node, op1, next + 1);
       dpdk_crypto_input_check_op (vm, node, op2, next + 2);
@@ -227,6 +246,7 @@ dpdk_crypto_dequeue (vlib_main_t * vm, crypto_worker_main_t * cwm,
       op3->status = RTE_CRYPTO_OP_STATUS_NOT_PROCESSED;
 
       /* next */
+
       next += 4;
       n_ops -= 4;
       ops += 4;
@@ -242,6 +262,11 @@ dpdk_crypto_dequeue (vlib_main_t * vm, crypto_worker_main_t * cwm,
       bi[0] = crypto_op_get_priv (op0)->bi;
 
       n_deq[crypto_op_get_priv (op0)->encrypt] += 1;
+
+      if (op0->sym->m_dst)
+	*free_bi++ =
+	  vlib_get_buffer_index (vm,
+				 vlib_buffer_from_rte_mbuf (op0->sym->m_src));
 
       dpdk_crypto_input_check_op (vm, node, op0, next + 0);
 
@@ -265,6 +290,10 @@ dpdk_crypto_dequeue (vlib_main_t * vm, crypto_worker_main_t * cwm,
   dpdk_crypto_input_trace (vm, node, res->dev_id, bis, nexts, total_n_deq);
 
   crypto_free_ops (numa, cwm->ops, total_n_deq);
+
+  /* free the source chains that have been copied to a dst buffer */
+  if (free_bi != free_bis)
+    vlib_buffer_free (vm, free_bis, free_bi - free_bis);
 
   return total_n_deq;
 }

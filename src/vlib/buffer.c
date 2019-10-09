@@ -621,6 +621,7 @@ format_vlib_buffer_pool (u8 * s, va_list * va)
 {
   vlib_main_t *vm = va_arg (*va, vlib_main_t *);
   vlib_buffer_pool_t *bp = va_arg (*va, vlib_buffer_pool_t *);
+  int detail = va_arg (*va, int);
   vlib_buffer_pool_thread_t *bpt;
   u32 cached = 0;
 
@@ -640,6 +641,15 @@ format_vlib_buffer_pool (u8 * s, va_list * va)
 	      bp->data_size, bp->n_buffers, bp->n_avail, cached,
 	      bp->n_buffers - bp->n_avail - cached);
 
+  if (detail)
+    {
+      /* *INDENT-OFF* */
+      vec_foreach (bpt, bp->threads)
+        s = format (s, "\n%20s%=6d%=37s%=8u", "thread", bpt - bp->threads, "",
+                    bpt->n_cached);
+    /* *INDENT-ON* */
+    }
+
   return s;
 }
 
@@ -647,14 +657,28 @@ static clib_error_t *
 show_buffers (vlib_main_t * vm,
 	      unformat_input_t * input, vlib_cli_command_t * cmd)
 {
+  unformat_input_t _line_input, *line_input = &_line_input;
   vlib_buffer_main_t *bm = vm->buffer_main;
   vlib_buffer_pool_t *bp;
+  int detail = 0;
 
-  vlib_cli_output (vm, "%U", format_vlib_buffer_pool, vm, 0);
+  if (unformat_user (input, unformat_line_input, line_input))
+    {
+      while (unformat_check_input (line_input) != UNFORMAT_END_OF_INPUT)
+	{
+	  if (unformat (line_input, "detail"))
+	    detail = 1;
+	  else
+	    break;
+	}
+      unformat_free (line_input);
+    }
+
+  vlib_cli_output (vm, "%U", format_vlib_buffer_pool, vm, 0, detail);
 
   /* *INDENT-OFF* */
   vec_foreach (bp, bm->buffer_pools)
-    vlib_cli_output (vm, "%U", format_vlib_buffer_pool, vm, bp);
+    vlib_cli_output (vm, "%U", format_vlib_buffer_pool, vm, bp, detail);
   /* *INDENT-ON* */
 
   return 0;
@@ -663,7 +687,7 @@ show_buffers (vlib_main_t * vm,
 /* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_buffers_command, static) = {
   .path = "show buffers",
-  .short_help = "Show packet buffer allocation",
+  .short_help = "show buffers [detail] - show packet buffer allocation",
   .function = show_buffers,
 };
 /* *INDENT-ON* */

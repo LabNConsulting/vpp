@@ -1484,6 +1484,8 @@ dpdk_config (vlib_main_t * vm, unformat_input_t * input)
 	  if (f && rte_openlog_stream (f) == 0)
 	    {
 	      clib_file_t t = { 0 };
+	      /* work around occasional hang in dpdk_log_read_ready read() */
+	      fcntl (log_fds[0], F_SETFL, O_NONBLOCK);
 	      t.read_function = dpdk_log_read_ready;
 	      t.file_descriptor = log_fds[0];
 	      t.description = format (0, "DPDK logging pipe");

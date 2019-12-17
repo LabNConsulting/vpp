@@ -341,6 +341,7 @@ vbi (vlib_buffer_t * b)
   return bi;
 }
 
+#ifdef VLIB_VALIDATE_BUFFER_DEBUG
 int
 gdb_validate_buffer (vlib_buffer_t * b)
 {
@@ -356,6 +357,7 @@ gdb_validate_buffer (vlib_buffer_t * b)
   fformat (stderr, "gdb_validate_buffer(): no error found\n");
   return 0;
 }
+#endif /* VLIB_VALIDATE_BUFFER_DEBUG */
 
 /* Cafeteria plan, maybe you don't want these functions */
 clib_error_t *

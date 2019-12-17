@@ -1458,14 +1458,16 @@ ixge_rx_queue_no_wrap (ixge_main_t * xm,
 	  to_rx += 2;
 	  to_add -= 2;
 
+#ifdef VLIB_VALIDATE_BUFFER_DEBUG
 #if 0
 	  ASSERT (VLIB_BUFFER_KNOWN_ALLOCATED == vlib_buffer_is_known (bi0));
 	  ASSERT (VLIB_BUFFER_KNOWN_ALLOCATED == vlib_buffer_is_known (bi1));
 	  ASSERT (VLIB_BUFFER_KNOWN_ALLOCATED == vlib_buffer_is_known (fi0));
 	  ASSERT (VLIB_BUFFER_KNOWN_ALLOCATED == vlib_buffer_is_known (fi1));
 #endif
+#endif /* VLIB_VALIDATE_BUFFER_DEBUG */
 
-	  b0 = vlib_get_buffer (vm, bi0);
+      b0 = vlib_get_buffer (vm, bi0);
 	  b1 = vlib_get_buffer (vm, bi1);
 
 	  /*
@@ -1535,7 +1537,8 @@ ixge_rx_queue_no_wrap (ixge_main_t * xm,
 	  bi_last = bi1;
 	  b_last = b1;
 
-	  if (CLIB_DEBUG > 0)
+#ifdef VLIB_VALIDATE_BUFFER_DEBUG
+          if (CLIB_DEBUG > 0)
 	    {
 	      u32 bi_sop0 = is_sop ? bi0 : bi_sop;
 	      u32 bi_sop1 = is_eop0 ? bi1 : bi_sop0;
@@ -1581,7 +1584,8 @@ ixge_rx_queue_no_wrap (ixge_main_t * xm,
 	      is_sop = is_eop1;
 	      bi_sop = bi_sop1;
 	    }
-	  if (1)		/* "Eliot" version */
+#endif              /* VLIB_VALIDATE_BUFFER_DEBUG */
+          if (1)		/* "Eliot" version */
 	    {
 	      /* Speculatively enqueue to cached next. */
 	      u8 saved_is_sop = is_sop;
@@ -1673,12 +1677,14 @@ ixge_rx_queue_no_wrap (ixge_main_t * xm,
 	  to_rx += 1;
 	  to_add -= 1;
 
+#ifdef VLIB_VALIDATE_BUFFER_DEBUG
 #if 0
 	  ASSERT (VLIB_BUFFER_KNOWN_ALLOCATED == vlib_buffer_is_known (bi0));
 	  ASSERT (VLIB_BUFFER_KNOWN_ALLOCATED == vlib_buffer_is_known (fi0));
 #endif
+#endif /* VLIB_VALIDATE_BUFFER_DEBUG */
 
-	  b0 = vlib_get_buffer (vm, bi0);
+      b0 = vlib_get_buffer (vm, bi0);
 
 	  /*
 	   * Turn this on if you run into
@@ -1726,7 +1732,8 @@ ixge_rx_queue_no_wrap (ixge_main_t * xm,
 
 	  bi_sop = is_sop ? bi0 : bi_sop;
 
-	  if (CLIB_DEBUG > 0 && is_eop0)
+#ifdef VLIB_VALIDATE_BUFFER_DEBUG
+          if (CLIB_DEBUG > 0 && is_eop0)
 	    {
 	      u8 *msg =
 		vlib_validate_buffer (vm, bi_sop, /* follow_buffer_next */ 1);
@@ -1746,7 +1753,8 @@ ixge_rx_queue_no_wrap (ixge_main_t * xm,
 						   bi_sop, next0);
 		}
 	    }
-	  if (1)		/* "Eliot" version */
+#endif              /* VLIB_VALIDATE_BUFFER_DEBUG */
+          if (1)		/* "Eliot" version */
 	    {
 	      if (PREDICT_TRUE (next0 == next_index))
 		{

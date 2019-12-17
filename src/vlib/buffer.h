@@ -67,6 +67,8 @@
     of typing to make it so.
 */
 
+#define VLIB_VALIDATE_BUFFER_DEBUG
+
 /**
  * Buffer Flags
  */
@@ -453,12 +455,14 @@ typedef struct
   uword buffer_mem_size;
   vlib_buffer_pool_t *buffer_pools;
 
+#ifdef VLIB_VALIDATE_BUFFER_DEBUG
   /* Hash table mapping buffer index into number
      0 => allocated but free, 1 => allocated and not-free.
      If buffer index is not in hash table then this buffer
      has never been allocated. */
   uword *buffer_known_hash;
   clib_spinlock_t buffer_known_hash_lockp;
+#endif				/* VLIB_VALIDATE_BUFFER_DEBUG */
   u8 default_buffer_pool_index_for_numa[VLIB_BUFFER_MAX_NUMA_NODES];
 
   /* config */

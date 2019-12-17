@@ -197,6 +197,11 @@ dpdk_esp_decrypt_inline (vlib_main_t * vm,
 	      if (is_aead)
 		auth_alg = cipher_alg;
 
+	      /* XXX chopps: we want this to be more versatile, we should support
+	         multiple devices, this code assumes only one, instead we
+	         should check how many slots are available and then only queue
+	         that many and move to the next device (i.e., resource) to keep
+	         queueing more */
 	      res_idx = get_resource (cwm, sa0);
 
 	      if (PREDICT_FALSE (res_idx == (u16) ~ 0))

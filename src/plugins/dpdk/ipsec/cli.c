@@ -447,6 +447,9 @@ set_dpdk_crypto_placement_fn (vlib_main_t * vm,
 
   /* Check if any unused resource */
 
+  /* XXX chopps: this is stopping us from allocating multiple devices to a
+     thread */
+
   u8 used = 0;
   /* *INDENT-OFF* */
   vec_foreach (idx, cwm->resource_idx)

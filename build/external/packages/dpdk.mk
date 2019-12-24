@@ -17,7 +17,6 @@ DPDK_DOWNLOAD_DIR            ?= $(DL_CACHE_DIR)
 DPDK_DEBUG                   ?= n
 DPDK_AARCH64_GENERIC         ?= y
 DPDK_MLX4_PMD                ?= n
-DPDK_MLX5_PMD                ?= n
 DPDK_TAP_PMD                 ?= n
 DPDK_FAILSAFE_PMD            ?= n
 
@@ -40,8 +39,10 @@ endif
 ifeq ($(MACHINE),$(filter $(MACHINE),x86_64))
   AESNI ?= y
   DPDK_BUILD_DEPS := ipsec-mb-install
+  DPDK_MLX5_PMD ?= y
 else
   AESNI ?= n
+  DPDK_MLX5_PMD ?= n
 endif
 
 ifneq (,$(findstring clang,$(CC)))

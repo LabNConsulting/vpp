@@ -31,7 +31,7 @@
 #define always_inline static inline __attribute__ ((__always_inline__))
 #endif
 
-#define DPDK_CRYPTO_N_QUEUE_DESC  2048
+#define DPDK_CRYPTO_N_QUEUE_DESC  (1024 * 4)
 #define DPDK_CRYPTO_NB_SESS_OBJS  20000
 
 #define foreach_dpdk_crypto_input_next		\

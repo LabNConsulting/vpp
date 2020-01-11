@@ -108,6 +108,9 @@ VLIB_INIT_FUNCTION (dpdk_main_init) =
 clib_error_t *
 dpdk_early_init (vlib_main_t *vm)
 {
+#ifndef DPDK_EARLY_INIT
+  return 0;
+#else
   int fd = -1;
   u64 *pt = 0;
   clib_error_t *err = 0;
@@ -153,6 +156,7 @@ done:
     close (fd);
   vec_free (pt);
   return err;
+#endif
 }
 
 /* *INDENT-OFF* */

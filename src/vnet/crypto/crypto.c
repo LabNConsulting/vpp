@@ -382,7 +382,8 @@ vnet_crypto_key_del (vlib_main_t * vm, vnet_crypto_key_index_t index)
 
   if (key->type == VNET_CRYPTO_KEY_TYPE_DATA)
     {
-      clib_memset (key->data, 0, vec_len (key->data));
+      if (vec_len (key->data))
+	clib_memset (key->data, 0, vec_len (key->data));
       vec_free (key->data);
     }
   else if (key->type == VNET_CRYPTO_KEY_TYPE_LINK)

@@ -22,6 +22,7 @@ include_directories(${CMAKE_BINARY_DIR})
 add_vpp_plugin(iptfs
   SOURCES
   # iptfs_build.c
+  deferred.c
   iptfs_api.c
   iptfs_decap.c
   iptfs_decap_reorder.c
@@ -51,6 +52,7 @@ add_vpp_plugin(iptfs
 
   # MULTIARCH_SOURCES
   INSTALL_HEADERS
+  deferred.h
   ipsec_iptfs.h
   iptfs_sring.h
   iptfs_all_api_h.h

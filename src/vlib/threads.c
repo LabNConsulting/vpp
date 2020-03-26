@@ -1696,6 +1696,39 @@ vlib_worker_wait_one_loop (void)
 
 /*
  * Check the frame queue to see if any frames are available.
+ * If so, count the packets on the frames.
+ *
+ * This must be called within the barrier.
+ */
+uword
+vlib_frame_queue_vector_count (u32 frame_queue_index)
+{
+  vlib_thread_main_t *tm = vlib_get_thread_main ();
+  vlib_frame_queue_main_t *fqm;
+  uword thread_index, count = 0;
+
+  ASSERT (vlib_thread_is_main_w_barrier ());
+
+  fqm = vec_elt_at_index (tm->frame_queue_mains, frame_queue_index);
+
+  vec_foreach_index (thread_index, fqm->vlib_frame_queues)
+  {
+    vlib_frame_queue_t *fq = fqm->vlib_frame_queues[thread_index];
+    for (u64 head = fq->head; head != fq->tail; head++)
+      {
+	vlib_frame_queue_elt_t *elt =
+	  fq->elts + ((head + 1) & (fq->nelts - 1));
+	if (!elt->valid)
+	  break;
+	if (elt->msg_type == VLIB_FRAME_QUEUE_ELT_DISPATCH_FRAME)
+	  count += elt->n_vectors;
+      }
+  }
+  return count;
+}
+
+/*
+ * Check the frame queue to see if any frames are available.
  * If so, pull the packets off the frames and put them to
  * the handoff node.
  */

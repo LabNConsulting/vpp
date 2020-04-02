@@ -17,6 +17,9 @@ if(VPP_BUILD_G2)
   if(GTK2_FOUND)
     set(CMAKE_C_FLAGS "-Wno-deprecated-declarations ${CMAKE_C_FLAGS}")
     include_directories(${GTK2_INCLUDE_DIRS})
+
+    add_compile_options(-Wno-error=deprecated-declarations)
+
     add_vpp_executable(g2
       SOURCES
       clib.c

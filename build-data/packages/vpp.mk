@@ -27,6 +27,9 @@ vpp_cmake_args ?=
 vpp_cmake_args += -DCMAKE_INSTALL_PREFIX:PATH=$(PACKAGE_INSTALL_DIR)
 vpp_cmake_args += -DCMAKE_BUILD_TYPE="$($(TAG)_TAG_BUILD_TYPE)"
 vpp_cmake_args += -DCMAKE_PREFIX_PATH:PATH="$(vpp_cmake_prefix_path)"
+vpp_cmake_args += -DVPP_BUILD_G2=ON
+vpp_cmake_args += -DVPP_BUILD_PERFTOOL=ON
+vpp_cmake_args += -DCMAKE_EXPORT_COMPILE_COMMANDS=YES
 ifeq ("$(V)","1")
 vpp_cmake_args += -DCMAKE_VERBOSE_MAKEFILE:BOOL=ON
 endif

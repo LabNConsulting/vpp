@@ -29,8 +29,12 @@
 
 #define foreach_dpdk_crypto_input_error		\
   _(DQ_COPS, "Crypto ops dequeued")		\
-  _(AUTH_FAILED, "Crypto verification failed")	      \
-  _(STATUS, "Crypto operation failed")
+  _(STATUS, "Crypto operation failed")          \
+  _(NOT_PROCESSED, "Crypto not processed")	\
+  _(AUTH_FAILED, "Crypto verification failed")	\
+  _(INVALID_SESSION, "Crypto Invalid Session")  \
+  _(INVALID_ARGS, "Crypto Invalid Args")	\
+  _(ERROR, "Crypto Error handling operation")
 
 typedef enum
 {
@@ -77,11 +81,36 @@ dpdk_crypto_input_check_op (vlib_main_t * vm, vlib_node_runtime_t * node,
       vlib_node_increment_counter (vm,
 				   node->node_index,
 				   DPDK_CRYPTO_INPUT_ERROR_STATUS, 1);
-      /* if auth failed */
-      if (op0->status == RTE_CRYPTO_OP_STATUS_AUTH_FAILED)
+
+
+      switch (op0->status) {
+      case RTE_CRYPTO_OP_STATUS_AUTH_FAILED:
+        /* if auth failed */
 	vlib_node_increment_counter (vm,
 				     node->node_index,
 				     DPDK_CRYPTO_INPUT_ERROR_AUTH_FAILED, 1);
+	break;
+      case RTE_CRYPTO_OP_STATUS_INVALID_SESSION:
+	vlib_node_increment_counter (vm,
+				     node->node_index,
+				     DPDK_CRYPTO_INPUT_ERROR_INVALID_SESSION, 1);
+	break;
+      case RTE_CRYPTO_OP_STATUS_INVALID_ARGS:
+	vlib_node_increment_counter (vm,
+				     node->node_index,
+				     DPDK_CRYPTO_INPUT_ERROR_INVALID_ARGS, 1);
+	break;
+      case RTE_CRYPTO_OP_STATUS_NOT_PROCESSED:
+	vlib_node_increment_counter (vm,
+				     node->node_index,
+				     DPDK_CRYPTO_INPUT_ERROR_NOT_PROCESSED, 1);
+	break;
+      case RTE_CRYPTO_OP_STATUS_ERROR:
+	vlib_node_increment_counter (vm,
+				     node->node_index,
+				     DPDK_CRYPTO_INPUT_ERROR_ERROR, 1);
+	break;
+      }
     }
 }
 

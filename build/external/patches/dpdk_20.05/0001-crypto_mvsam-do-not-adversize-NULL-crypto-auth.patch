@@ -1,0 +1,95 @@
+From f09aee05efd927c7e78208396b1bfa1f7a1edd2d Mon Sep 17 00:00:00 2001
+From: Eric Kinzie <ekinzie@labn.net>
+Date: Thu, 26 Sep 2019 15:01:31 -0400
+Subject: [PATCH] crypto_mvsam: do not adversize NULL crypto/auth
+
+These are broken in the mvsam driver, so do not advertise the capability.
+Applications can use crypto_null, instead.
+---
+ drivers/crypto/mvsam/rte_mrvl_pmd.c     |  6 -----
+ drivers/crypto/mvsam/rte_mrvl_pmd_ops.c | 45 ---------------------------------
+ 2 files changed, 51 deletions(-)
+
+diff --git a/drivers/crypto/mvsam/rte_mrvl_pmd.c b/drivers/crypto/mvsam/rte_mrvl_pmd.c
+index ef2e5ed..93c2f7f 100644
+--- a/drivers/crypto/mvsam/rte_mrvl_pmd.c
++++ b/drivers/crypto/mvsam/rte_mrvl_pmd.c
+@@ -68,9 +68,6 @@ __rte_aligned(32);
+  */
+ static const
+ struct cipher_params_mapping cipher_map[RTE_CRYPTO_CIPHER_LIST_END] = {
+-	[RTE_CRYPTO_CIPHER_NULL] = {
+-		.supported = ALGO_SUPPORTED,
+-		.cipher_alg = SAM_CIPHER_NONE },
+ 	[RTE_CRYPTO_CIPHER_3DES_CBC] = {
+ 		.supported = ALGO_SUPPORTED,
+ 		.cipher_alg = SAM_CIPHER_3DES,
+@@ -108,9 +105,6 @@ struct cipher_params_mapping cipher_map[RTE_CRYPTO_CIPHER_LIST_END] = {
+  */
+ static const
+ struct auth_params_mapping auth_map[RTE_CRYPTO_AUTH_LIST_END] = {
+-	[RTE_CRYPTO_AUTH_NULL] = {
+-		.supported = ALGO_SUPPORTED,
+-		.auth_alg = SAM_AUTH_NONE },
+ 	[RTE_CRYPTO_AUTH_MD5_HMAC] = {
+ 		.supported = ALGO_SUPPORTED,
+ 		.auth_alg = SAM_AUTH_HMAC_MD5 },
+diff --git a/drivers/crypto/mvsam/rte_mrvl_pmd_ops.c b/drivers/crypto/mvsam/rte_mrvl_pmd_ops.c
+index 56a5450..c5106c9 100644
+--- a/drivers/crypto/mvsam/rte_mrvl_pmd_ops.c
++++ b/drivers/crypto/mvsam/rte_mrvl_pmd_ops.c
+@@ -433,51 +433,6 @@ static const struct rte_cryptodev_capabilities
+ 			}, }
+ 		}, }
+ 	},
+-	{	/* NULL (AUTH) */
+-		.op = RTE_CRYPTO_OP_TYPE_SYMMETRIC,
+-		{.sym = {
+-			.xform_type = RTE_CRYPTO_SYM_XFORM_AUTH,
+-			{.auth = {
+-				.algo = RTE_CRYPTO_AUTH_NULL,
+-				.block_size = 1,
+-				.key_size = {
+-					.min = 0,
+-					.max = 0,
+-					.increment = 0
+-				},
+-				.digest_size = {
+-					.min = 0,
+-					.max = 0,
+-					.increment = 0
+-				},
+-				.iv_size = {
+-					.min = 0,
+-					.max = 0,
+-					.increment = 0
+-				}
+-			}, },
+-		}, },
+-	},
+-	{	/* NULL (CIPHER) */
+-		.op = RTE_CRYPTO_OP_TYPE_SYMMETRIC,
+-		{.sym = {
+-			.xform_type = RTE_CRYPTO_SYM_XFORM_CIPHER,
+-			{.cipher = {
+-				.algo = RTE_CRYPTO_CIPHER_NULL,
+-				.block_size = 1,
+-				.key_size = {
+-					.min = 0,
+-					.max = 0,
+-					.increment = 0
+-				},
+-				.iv_size = {
+-					.min = 0,
+-					.max = 0,
+-					.increment = 0
+-				}
+-			}, },
+-		}, }
+-	},
+ 
+ 	RTE_CRYPTODEV_END_OF_CAPABILITIES_LIST()
+ };
+-- 
+2.7.4
+

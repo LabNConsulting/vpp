@@ -1,0 +1,91 @@
+diff --git a/drivers/crypto/mvsam/rte_mrvl_pmd.c b/drivers/crypto/mvsam/rte_mrvl_pmd.c
+index c2ae82a26..b6d974000 100644
+--- a/drivers/crypto/mvsam/rte_mrvl_pmd.c
++++ b/drivers/crypto/mvsam/rte_mrvl_pmd.c
+@@ -490,7 +490,8 @@ mrvl_request_prepare(struct sam_cio_op_params *request,
+ 	dst_mbuf = op->sym->m_dst ? op->sym->m_dst : op->sym->m_src;
+ 
+ 	if (!rte_pktmbuf_is_contiguous(dst_mbuf)) {
+-		MRVL_LOG(ERR, "Segmented destination buffer not supported!");
++		MRVL_LOG(ERR, "Segmented destination buffer not supported! src %p segs %u dst %p segs %u",
++                    src_mbuf, segments_nb, op->sym->m_dst, op->sym->m_dst ? op->sym->m_dst->nb_segs : 0);
+ 		return -1;
+ 	}
+ 
+@@ -571,6 +572,7 @@ mrvl_request_prepare(struct sam_cio_op_params *request,
+ 				dst_mbuf, uint8_t *,
+ 				request->auth_icv_offset) == digest)
+ 			return 0;
++		MRVL_LOG(ERR, "Digest in different location dst_mbuf %p != digest %p icv_off %u", dst_mbuf, digest, request->auth_icv_offset);
+ 	} else {/* sess->sam_sess_params.dir == SAM_DIR_DECRYPT */
+ 		/*
+ 		 * EIP will look for digest at auth_icv_offset
+diff --git a/drivers/net/mvpp2/mrvl_ethdev.c b/drivers/net/mvpp2/mrvl_ethdev.c
+index ce52f0901..012704a69 100644
+--- a/drivers/net/mvpp2/mrvl_ethdev.c
++++ b/drivers/net/mvpp2/mrvl_ethdev.c
+@@ -2399,15 +2399,14 @@ mrvl_free_sent_buffers(struct pp2_ppio *ppio, struct pp2_hif *hif,
+ 			goto skip;
+ 		}
+ 
+-		if (unlikely(!entry->bpool)) {
+-			struct rte_mbuf *mbuf;
+-
+-			mbuf = (struct rte_mbuf *)
+-			       (cookie_addr_high | entry->buff.cookie);
++                struct rte_mbuf *mbuf = (struct rte_mbuf *)
++                                        (cookie_addr_high | entry->buff.cookie);
++                /* Do not cache chains of buffers! */
++		// if (unlikely(!entry->bpool) || mbuf->next) {
+ 			rte_pktmbuf_free(mbuf);
+ 			skip_bufs = 1;
+ 			goto skip;
+-		}
++		//}
+ 
+ 		mrvl_port_bpool_size
+ 			[entry->bpool->pp2_id][entry->bpool->id][core_id]++;
+@@ -2547,7 +2546,7 @@ mrvl_tx_sg_pkt_burst(void *txq, struct rte_mbuf **tx_pkts,
+ 	struct mrvl_txq *q = txq;
+ 	struct mrvl_shadow_txq *sq;
+ 	struct pp2_hif *hif;
+-	struct pp2_ppio_desc descs[nb_pkts * PP2_PPIO_DESC_NUM_FRAGS];
++	// struct pp2_ppio_desc descs[nb_pkts * PP2_PPIO_DESC_NUM_FRAGS];
+ 	struct pp2_ppio_sg_pkts pkts;
+ 	uint8_t frags[nb_pkts];
+ 	unsigned int core_id = rte_lcore_id();
+@@ -2571,6 +2570,7 @@ mrvl_tx_sg_pkt_burst(void *txq, struct rte_mbuf **tx_pkts,
+ 
+ 	/* Save shadow queue free size */
+ 	sq_free_size = MRVL_PP2_TX_SHADOWQ_SIZE - sq->size - 1;
++        struct pp2_ppio_desc descs[sq_free_size];
+ 
+ 	tail = 0;
+ 	for (i = 0; i < nb_pkts; i++) {
+@@ -2597,6 +2597,8 @@ mrvl_tx_sg_pkt_burst(void *txq, struct rte_mbuf **tx_pkts,
+ 			break;
+ 		}
+ 
++#if 0
++                /* XXX chopps: this is a bogus limit */
+ 		/* Check if nb_segs does not exceed the max nb of desc per
+ 		 * fragmented packet
+ 		 */
+@@ -2606,6 +2608,7 @@ mrvl_tx_sg_pkt_burst(void *txq, struct rte_mbuf **tx_pkts,
+ 				"Too many segments. Packet won't be sent.\n");
+ 			break;
+ 		}
++#endif
+ 
+ 		if (likely(nb_pkts - i > MRVL_MUSDK_PREFETCH_SHIFT)) {
+ 			struct rte_mbuf *pref_pkt_hdr;
+@@ -2666,8 +2669,8 @@ mrvl_tx_sg_pkt_burst(void *txq, struct rte_mbuf **tx_pkts,
+ 						(cookie_addr_high | addr));
+ 		}
+ 		sq->size -= num - total_descs;
+-		nb_pkts = pkts.num;
+ 	}
++        nb_pkts = pkts.num;
+ 
+ 	q->bytes_sent += bytes_sent;
+ 

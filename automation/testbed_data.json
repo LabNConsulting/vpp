@@ -1,0 +1,92 @@
+{
+  "testbed_servers": {
+    "bridged": ["d1", "d2"],
+    "docker": ["d1", "d2"],
+    "physical": ["p1", "p2"],
+    "phymem": ["pm1", "pm2"],
+    "sriov": ["s1", "s2"]
+  },
+  "testbed_trex": {
+    "docker": "trex",
+    "bridged": "trex",
+    "physical": "ptrex",
+    "phymem": "ptrex",
+    "sriov": "sriovtrex"
+  },
+  "testbed_binonly": [ ],
+  "testbed_docker": [ "bridged", "docker", "physical", "phymem", "sriov" ],
+  "testbed_docker_physical": [ "physical", "phymem" ],
+  "testbed_macaddr": {
+    "sriovtrex-0": "02:00:0b:00:00:fd",
+    "sriovtrex-1": "02:00:0c:00:00:fd",
+    "trex-0": "02:00:0b:00:00:fd",
+    "trex-1": "02:00:0c:00:00:fd",
+    "d1-0": "02:41:0b:0b:0b:0b",
+    "d1-1": "02:41:0d:0d:0d:0b",
+    "d2-0": "02:42:0c:0c:0c:0c",
+    "d2-1": "02:42:0d:0d:0d:0c",
+    "ptrex-0": "40:a6:b7:4b:62:08",
+    "ptrex-1": "40:a6:b7:4b:62:09",
+    "p1-native-0": "02:41:0b:0b:0b:0b",
+    "p1-0": "02:41:0b:0b:0b:0b",
+    "p1-1": "f8:f2:1e:3c:15:ec",
+    "p2-native-0": "02:42:0c:0c:0c:0c",
+    "p2-0": "02:42:0c:0c:0c:0c",
+    "p2-1": "f8:f2:1e:3c:15:ed",
+    "pm1-0": "02:41:0b:0b:0b:0b",
+    "pm1-1": "02:41:0d:0d:0d:0b",
+    "pm2-0": "02:42:0c:0c:0c:0c",
+    "pm2-1": "02:42:0d:0d:0d:0c"
+  },
+  "testbed_pci_parents": {
+    "p1": {
+      "0000:67:02.0": "0000:67:00.0",
+      "0000:67:0a.0": "0000:67:00.1",
+      "0000:b5:02.0": "0000:b5:00.0",
+      "0000:b5:0a.0": "0000:b5:00.1"
+    },
+    "p2": {
+      "0000:67:02.0": "0000:67:00.0",
+      "0000:67:0a.0": "0000:67:00.1",
+      "0000:b5:02.0": "0000:b5:00.0",
+      "0000:b5:0a.0": "0000:b5:00.1"
+    },
+    "pm1": {
+      "0000:67:02.0": "0000:67:00.0",
+      "0000:67:0a.0": "0000:67:00.1",
+      "0000:b5:02.0": "0000:b5:00.0",
+      "0000:b5:0a.0": "0000:b5:00.1"
+    },
+    "pm2": {
+      "0000:67:02.0": "0000:67:00.0",
+      "0000:67:0a.0": "0000:67:00.1",
+      "0000:b5:02.0": "0000:b5:00.0",
+      "0000:b5:0a.0": "0000:b5:00.1"
+    }
+  },
+  "testbed_interfaces": {
+    "d1-0": "UnknownEthernet0",
+    "d1-1": "UnknownEthernet1",
+    "d2-0": "UnknownEthernet0",
+    "d2-1": "UnknownEthernet1",
+    "ptrex-0": "b5:00.0",
+    "ptrex-1": "b5:00.1",
+    "p1-native-0": "avf-0/67/2/0",
+    "p1-0": "VirtualFunctionEthernet67/2/0",
+    "p1-1": "TenGigabitEthernet17/0/0",
+    "p2-native-0": "avf-0/67/a/0",
+    "p2-0": "VirtualFunctionEthernet67/a/0",
+    "p2-1": "TenGigabitEthernet17/0/1",
+    "pm1-native-0": "avf-0/67/2/0",
+    "pm1-0": "VirtualFunctionEthernet67/2/0",
+    "pm1-1": "memif1/1",
+    "pm2-native-0": "avf-0/67/a/0",
+    "pm2-0": "VirtualFunctionEthernet67/a/0",
+    "pm2-1": "memif1/1",
+    "s1-0": "VirtualFunctionEthernet10/0/0",
+    "s1-1": "VirtualFunctionEthernet10/0/1",
+    "s2-0": "VirtualFunctionEthernet10/0/0",
+    "s2-1": "VirtualFunctionEthernet10/0/1"
+  },
+  "testbed_switchports": { }
+}

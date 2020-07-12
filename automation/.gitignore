@@ -1,0 +1,6 @@
+*.log
+*.pcap
+*-compose.yml
+docker-trex-extract
+trex
+trex_stl_lib

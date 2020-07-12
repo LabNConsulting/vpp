@@ -1,0 +1,6 @@
+#tmux split-window docker-compose exec d1 bash -c 'iperf -s'
+#tmux split-window docker-compose exec d2 bash -c 'watch -n1 '"'"'vpp_get_stats dump-machine /net/ipsec/sa/iptfs/tx- | awk -F: '"'"'"'"'"'/2:1:1.*tx-(pps|rtt|lossrate)/{print \$4;}'"'"'"'"'"' | xargs'"'"''
+tmux split-window docker-compose exec d2 bash -c 'while sleep 1; do vpp_get_stats dump-machine /net/ipsec/sa/iptfs/tx- | awk -F: '"'"'/2:1:1.*tx-(pps|rtt|lossrate)/{print $4;}'"'"' | xargs | tee -a cc-stats-d2.csv; done'
+#tmux split-window docker-compose exec d1 bash -c 'watch -n1 '"'"'vpp_get_stats dump-machine /net/ipsec/sa/iptfs/tx- | awk -F: '"'"'"'"'"'/2:1:1.*tx-(pps|rtt|lossrate)/{print \$4;}'"'"'"'"'"' | xargs'"'"''
+tmux split-window docker-compose exec d1 bash -c 'while sleep 1; do vpp_get_stats dump-machine /net/ipsec/sa/iptfs/tx- | awk -F: '"'"'/2:1:1.*tx-(pps|rtt|lossrate)/{print $4;}'"'"' | xargs | tee -a cc-stats-d1.csv; done'
+#tmux split-window docker-compose exec d2 bash -c 'sleep 1 && iperf -i 2 -t 10000 -c 14.14.14.11'

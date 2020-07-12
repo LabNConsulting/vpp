@@ -1,0 +1,46 @@
+* Automation notes
+** Docker Use (testbed=~docker~)
+
+One can use docker to do functional testing. To do so specify the testbed as
+~docker~. Currently this assumes that you have built VPP locally and docker
+executes the binaries from your build (either the debug or normal build). It
+executes the VPP binary in a container using the image
+~labn/docker-ci-test:18.04~
+
+*** Building VPP
+
+The ~make wipe~ step if optional and only required when switching from debug to
+non-debug versions.
+
+- For debug version
+#+begin_src bash
+  cd vpp/docker
+  make wipe
+  make DEBUG=1 build
+#+end_src
+
+- For production (non-debug) version
+#+begin_src bash
+  cd vpp/docker
+  make wipe
+  make build
+#+end_src
+
+*** Bringing up the testbed
+
+Now that you have everything built you can launch the docker testbed and look
+around.
+
+*NOTE* Currently there seems to be some bug with VPP PAPI client connections and
+ docker. If you see a failure indicating "VPP API client: read failed" then try
+ re-launching, or doing a RCA. :)
+
+**** Bring up an iptfs testbed with 10M tunnel:
+
+#+begin_src baseh
+cd vpp/automation
+./runtests.py --testbed=docker --rate=10M --percentage=0 --pause
+#+end_src
+
+The specification of ~--percentage=0~ causes the launch of TREX to be skipped.
+

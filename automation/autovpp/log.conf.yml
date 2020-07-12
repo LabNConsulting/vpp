@@ -1,0 +1,60 @@
+#
+# Copyright (c) 2020 LabN Consulting, L.L.C.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+version: 1
+formatters:
+  simple:
+    format: '%(asctime)s:%(levelname)s:%(message)s'
+  precise:
+    format: '%(asctime)s:%(levelname)s:%(name)s:%(message)s'
+handlers:
+  console:
+    class: logging.StreamHandler
+    level: INFO
+    formatter: simple
+    stream: ext://sys.stdout
+  cmdfile:
+    class: logging.FileHandler
+    formatter: precise
+    level: DEBUG
+    filename: cmd-log.txt
+  file:
+    class: logging.FileHandler
+    formatter: precise
+    level: DEBUG
+    filename: log.txt
+  papifile:
+    class: logging.FileHandler
+    formatter: precise
+    level: DEBUG
+    filename: log-with-papi.txt
+loggers:
+  vpp_papi:
+    level: DEBUG
+    handlers: [papifile]
+    propagate: 0
+  # this is noisy with init debug from trex client, that we don't need
+  matplotlib:
+    propagate: 0
+  autovpp.remote.cmd:
+    level: DEBUG
+    handlers: [cmdfile]
+    propagate: 0
+  autovpp:
+    level: DEBUG
+    propagate: 1
+root:
+  level: DEBUG
+  handlers: [console, file, papifile]

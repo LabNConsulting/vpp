@@ -373,8 +373,7 @@ libexpand = $(subst $(subst ,, ),:,$(foreach lib,$(1),$(BR)/install-$(2)-native/
 export TEST_DIR ?= $(WS_ROOT)/test
 export RND_SEED ?= $(shell python3 -c 'import time; print(time.time())')
 
-define test
-	$(if $(filter-out $(3),retest),make -C $(BR) PLATFORM=$(1) TAG=$(2) vpp-install,)
+define test-nobuild
 	$(eval libs:=lib lib64)
 	make -C test \
 	  VPP_BUILD_DIR=$(BR)/build-$(2)-native \
@@ -389,6 +388,11 @@ define test
 	  RND_SEED=$(RND_SEED) \
 	  CACHE_OUTPUT=$(CACHE_OUTPUT) \
 	  $(3)
+endef
+
+define test
+	$(if $(filter-out $(3),retest),make -C $(BR) PLATFORM=$(1) TAG=$(2) vpp-install,)
+	$(call test-nobuild,$(1),$(2),$(3))
 endef
 
 .PHONY: test
@@ -445,7 +449,10 @@ test-shell-gcov:
 
 .PHONY: test-dep
 test-dep:
-	@make -C test test-dep
+	$(call test-nobuild,vpp,vpp,test-dep)
+
+test-dep-debug:
+	$(call test-nobuild,vpp,vpp_debug,test-dep)
 
 .PHONY: test-doc
 test-doc:

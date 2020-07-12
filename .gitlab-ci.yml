@@ -1,0 +1,263 @@
+#
+# Copyright (c) 2020 LabN Consulting, L.L.C.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+stages: [ build, image, smoke, test, deploy ]
+variables:
+  RUNIMAGE: "${CI_REGISTRY}/labn/docker-ci-test:18.04-master"
+  TESTIMAGE: "${CI_REGISTRY_IMAGE}:${CI_PIPELINE_ID}"
+
+.only_all: &only_all
+  only:
+    - master
+    - branches
+    - merge_requests
+
+.archive_results: &archive_results
+  after_script:
+    - 'for f in /tmp/vpp-failed-unittests/*/core*; do
+         if [ -e "$f" ]; then
+            echo "Backtrace for core: $f";
+            cmdfile=$$.gdbcmd;
+            printf "bt\nquit\n" > $cmdfile;
+            vppcmd=$CI_PROJECT_DIR/build-root/install-vpp_debug-native/vpp/bin/vpp;
+            gdb --command=$cmdfile "$vppcmd" "$f";
+         fi;
+       done'
+    - mkdir -p tmp
+    - >
+        (cd tmp && if [ "$(ls -A /tmp/vpp-failed-unittests)" ]; then
+          for d in /tmp/vpp-failed-unittests/*; do
+            faildir=$(readlink $d);
+            (cd /tmp/vpp-failed-unittests && tar --exclude='*.sock' -cf - $faildir) | tar -xf -;
+          done;
+        else
+         (cd /tmp && tar --exclude='*.pcap' --exclude='*.sock' -cf - vpp-unittest-* ) | tar -xf -;
+        fi)
+  artifacts:
+    when: always
+    paths:
+      - "tmp/"
+    expire_in: 1 week
+
+.wip_branches: &wip_branches
+  - /wip-*/
+
+.wip_shared_upstream: &wip_shared_upstream
+  - merge_requests
+  - /wip-*/
+  - /^labn-/
+  - /^stable/
+  - /^master$/
+
+.wip_upstream: &wip_upstream
+  - merge_requests
+  - /wip-*/
+  - /^stable/
+  - /^master$/
+
+.upstream_branches: &upstream_branches
+  - /^stable/
+  - /^master$/
+
+.shared_branches: &shared_branches
+  - merge_requests
+  - /^labn-/
+
+.shared_upstream_branches: &shared_upstream_branches
+  - merge_requests
+  - /^labn-/
+  - /^stable/
+  - /^master$/
+
+# This is failing to build due to MLX
+# # Build a debian pkg installed release image from
+# build-deb-image:
+#   image: ${RUNIMAGE}
+#   stage: build
+#   only:
+#     *shared_upstream_branches
+#   script:
+#     - make build-release
+#     - make pkg-deb
+#     - make -C docker build-deb VPPIMAGE=${TESTIMAGE}
+#     - docker login -u gitlab-ci-token -p $CI_BUILD_TOKEN $CI_REGISTRY
+#     - docker push ${TESTIMAGE}-deb
+
+# More focused test run for non-shared development branches
+# smoke-test:
+#   stage: smoke
+#   image: ${RUNIMAGE}
+#   <<: *only_all
+#   except:
+#     *shared_upstream_branches
+#   script:
+#     - cd /vpp-src
+#     # Test IP-TFS and IPsec
+#     - make retest-debug FAILFAST=1 TEST='test_iptfs'
+#     - make retest-debug SANITY=no FAILFAST=1 TEST='test_ipsec_esp'
+#     - make retest-debug SANITY=no FAILFAST=1 TEST='test_ipsec_tun_if_esp'
+#   <<: *archive_results
+
+cache:
+  key: "$CI_COMMIT_REF_SLUG"
+  paths:
+      - "build-root/install-vpp_debug-native/"
+      - "build-root/build-vpp_debug-native/"
+      - "build-root/install-vpp_debug-native/"
+      - "test/build/"
+      - "test/run/"
+
+build-test:
+  tags:
+    - latest
+  stage: build
+  image: ${RUNIMAGE}
+  script:
+    - make build
+  artifacts:
+    when: always
+    paths:
+      - "build-root/install-vpp_debug-native/"
+    expire_in: 1 day
+
+# Build a debug image include the source
+build-image:
+  tags:
+    - latest
+  image: ${RUNIMAGE}
+  stage: image
+  only:
+    #*shared_upstream_branches
+    *upstream_branches
+  script:
+    - docker build -t ${TESTIMAGE} -f docker/Dockerfile.ci .
+    - docker login -u gitlab-ci-token -p $CI_BUILD_TOKEN $CI_REGISTRY
+    - docker push ${TESTIMAGE}
+  dependencies:
+    # Limit artifacts to just build-test.
+    - build-test
+
+# Manual job for smoke testing wip builds
+wip-smoke-test:
+  tags:
+    - latest
+  stage: smoke
+  image: ${RUNIMAGE}
+  when: manual
+  only:
+    *wip_branches
+  script:
+    - make test-debug FAILFAST=1 TEST='test_iptfs'
+    - make retest-debug SANITY=no FAILFAST=1 TEST='test_ipsec_esp'
+    - make retest-debug SANITY=no FAILFAST=1 TEST='test_ipsec_tun_if_esp'
+  dependencies:
+    # Limit artifacts to just build-test.
+    - build-test
+  <<: *archive_results
+
+# Smoke test for non-wip non-upstream
+smoke-test:
+  tags:
+    - latest
+  stage: smoke
+  image: ${RUNIMAGE}
+  <<: *only_all
+  except:
+    *wip_upstream
+  script:
+    - make test-debug FAILFAST=1 TEST='test_iptfs'
+    - make retest-debug SANITY=no FAILFAST=1 TEST='test_ipsec_esp'
+    - make retest-debug SANITY=no FAILFAST=1 TEST='test_ipsec_tun_if_esp'
+  dependencies:
+    # Limit artifacts to just build-test.
+    - build-test
+  <<: *archive_results
+
+# Manual job for running NAT tests
+nat-tests:
+  tags:
+    - latest
+  stage: test
+  image: ${RUNIMAGE}
+  when: manual
+  script:
+    - make retest-debug TEST=test_nat
+  dependencies:
+    # Limit artifacts to just build-test.
+    - build-test
+  <<: *archive_results
+
+# Manual job for running reassembly tests
+reassembly-tests:
+  tags:
+    - latest
+  stage: test
+  image: ${RUNIMAGE}
+  when: manual
+  script:
+    - make retest-debug TEST=test_reassembly
+  dependencies:
+    # Limit artifacts to just build-test.
+    - build-test
+  <<: *archive_results
+
+# Manual job for running all tests
+all-tests:
+  tags:
+    - latest
+  stage: test
+  image: ${RUNIMAGE}
+  when: manual
+  except:
+    *shared_branches
+  script:
+    # Test Everything.
+    - make retest-debug
+  dependencies:
+    # Limit artifacts to just build-test.
+    - build-test
+  <<: *archive_results
+
+all-test-auto:
+  tags:
+    - latest
+  stage: test
+  image: ${RUNIMAGE}
+  only:
+    *shared_branches
+  script:
+    # Test Everything.
+    - make test-debug
+  dependencies:
+    # Limit artifacts to just build-test.
+    - build-test
+  <<: *archive_results
+
+# full (really all but nat and reassembly) on docker image
+full-image-test:
+  tags:
+    - latest
+  stage: test
+  image: ${TESTIMAGE}
+  only:
+    #*shared_branches
+    *upstream_branches
+  script:
+    - cd /vpp-src
+    # Test Everything.
+    - "export ALLTESTS=$(cd test && ls -1 test_*.py | egrep -v '(test_nat|test_reassembly)')"
+    - 'for f in ${ALLTESTS}; do f=${f%.py}; echo "RUNNING: $f"; make retest-debug TEST=$f; done'
+  cache: {}
+  <<: *archive_results

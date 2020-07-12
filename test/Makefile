@@ -225,7 +225,7 @@ $(FAILED_DIR): reset
 	@mkdir -p $@
 
 .PHONY: test-dep
-test-dep: $(BUILD_TEST_SRC) $(PAPI_INSTALL_DONE) $(FAILED_DIR)
+test-dep: $(BUILD_TEST_SRC) $(PAPI_INSTALL_DONE) $(FAILED_DIR) ext-test-apps
 
 .PHONY: test
 test: test-dep ext-test-apps sanity

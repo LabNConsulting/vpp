@@ -375,6 +375,16 @@ do {									\
   (n_vectors_left) = VLIB_FRAME_SIZE - _n;				\
 } while (0)
 
+#define vlib_get_next_frame_macro_p(vm,node,next_index,vectors,evectors,alloc_new_frame) \
+  do {									\
+    vlib_frame_t * _f							\
+      = vlib_get_next_frame_internal ((vm), (node), (next_index),       \
+                                      (alloc_new_frame));               \
+    u32 _n = _f->n_vectors;						\
+    (vectors) = vlib_frame_vector_args (_f) + _n * sizeof ((vectors)[0]); \
+    (evectors) = (vectors) + (VLIB_FRAME_SIZE - _n);                    \
+  } while (0)
+
 
 /** \brief Get pointer to next frame vector data by
     (@c vlib_node_runtime_t, @c next_index).
@@ -392,6 +402,11 @@ do {									\
   vlib_get_next_frame_macro (vm, node, next_index,			\
 			     vectors, n_vectors_left,			\
 			     /* alloc new frame */ 0)
+
+#define vlib_get_next_frame_p(vm,node,next_index,vectors,evectors)	\
+  vlib_get_next_frame_macro_p (vm, node, next_index,			\
+                                 vectors, evectors,			\
+                                 /* alloc new frame */ 0)
 
 #define vlib_get_new_next_frame(vm,node,next_index,vectors,n_vectors_left) \
   vlib_get_next_frame_macro (vm, node, next_index,			\

@@ -324,6 +324,9 @@ vlib_buffer_put_uninit (vlib_buffer_t * b, u16 size)
 {
   void *p = vlib_buffer_get_tail (b);
   /* XXX make sure there's enough space */
+  /* XXX this counts on us not changing the default size */
+  /* ASSERT ((u8 *) p - b->data + size <= VLIB_BUFFER_DEFAULT_DATA_SIZE); */
+
   b->current_length += size;
   return p;
 }

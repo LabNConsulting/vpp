@@ -292,10 +292,13 @@ unformat_function_t unformat_hex_string;
    Useful to ensure that the entire input matches with no trailing junk. */
 unformat_function_t unformat_eof;
 
-/* Parse memory size e.g. 100, 100k, 100m, 100g. */
+/* Parse memory size uword(!) e.g. 100, 100k, 100m, 100g. (base 2) */
 unformat_function_t unformat_memory_size;
 
-/* Unparse memory size e.g. 100, 100k, 100m, 100g. */
+/* Parse u64 bitrate e.g. 100, 100k, 100m, 100g. (base 10) */
+unformat_function_t unformat_bitrate;
+
+/* Unparse memory size uword(!) e.g. 100, 100k, 100m, 100g. (base 2) */
 u8 *format_memory_size (u8 * s, va_list * va);
 
 /* Format c identifier: e.g. a_name -> "a name". */

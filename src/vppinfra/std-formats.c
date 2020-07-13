@@ -268,6 +268,44 @@ unformat_memory_size (unformat_input_t * input, va_list * va)
   return 1;
 }
 
+/* Parse memory size e.g. 100, 100k, 100m, 100g. */
+uword
+unformat_bitrate (unformat_input_t * input, va_list * va)
+{
+  uword c;
+  u64 amount, multiplier = 1;
+  u64 *result = va_arg (*va, u64 *);
+  if (!unformat (input, "%llu%_", &amount))
+    return 0;
+
+  c = unformat_get_input (input);
+  switch (c)
+    {
+    case 't':
+    case 'T':
+      multiplier = 1000ull * 1000ull * 1000ull * 1000ull;
+      break;
+    case 'g':
+    case 'G':
+      multiplier = 1000ull * 1000ull * 1000ull;
+      break;
+    case 'm':
+    case 'M':
+      multiplier = 1000ull * 1000ull;
+      break;
+    case 'k':
+    case 'K':
+      multiplier = 1000ull;
+      break;
+    default:
+      unformat_put_input (input);
+      break;
+    }
+
+  *result = amount * multiplier;
+  return 1;
+}
+
 /* Format c identifier: e.g. a_name -> "a name".
    Works for both vector names and null terminated c strings. */
 u8 *

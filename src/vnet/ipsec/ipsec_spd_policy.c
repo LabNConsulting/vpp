@@ -183,6 +183,10 @@ ipsec_add_del_policy (vlib_main_t * vm,
       vec_sort_with_function (spd->policies[policy->type],
 			      ipsec_spd_entry_sort);
       *stat_index = policy_index;
+
+      if (policy->policy == IPSEC_POLICY_ACTION_PROTECT &&
+	  im->tfs_add_del_policy_cb)
+	(*im->tfs_add_del_policy_cb) (policy->sa_index, true);
     }
   else
     {
@@ -195,7 +199,15 @@ ipsec_add_del_policy (vlib_main_t * vm,
 	if (ipsec_policy_is_equal (vp, policy))
 	  {
 	    vec_del1 (spd->policies[policy->type], ii);
-	    ipsec_sa_unlock (vp->sa_index);
+	    if (vp->policy != IPSEC_POLICY_ACTION_PROTECT)
+	      ASSERT (INDEX_INVALID == vp->sa_index);
+	    else
+	      {
+		ASSERT (INDEX_INVALID != vp->sa_index);
+		if (im->tfs_add_del_policy_cb)
+		  (*im->tfs_add_del_policy_cb) (vp->sa_index, false);
+		ipsec_sa_unlock (vp->sa_index);
+	      }
 	    pool_put (im->policies, vp);
 	    break;
 	  }

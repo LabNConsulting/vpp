@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+#include <vlib/unix/plugin.h>
+
 #include <vnet/vnet.h>
 #include <vnet/api_errno.h>
 #include <vnet/ip/ip.h>
@@ -68,6 +70,12 @@ ipsec_check_esp_support (ipsec_sa_t * sa)
 clib_error_t *
 ipsec_add_del_sa_sess_cb (ipsec_main_t * im, u32 sa_index, u8 is_add)
 {
+  if (!is_add && im->tfs_add_del_sess_cb)
+    {
+      clib_error_t *err = im->tfs_add_del_sess_cb (sa_index, is_add);
+      if (err)
+	return err;
+    }
   ipsec_ah_backend_t *ah =
     pool_elt_at_index (im->ah_backends, im->ah_current_backend);
   if (ah->add_del_sa_sess_cb)
@@ -81,6 +89,12 @@ ipsec_add_del_sa_sess_cb (ipsec_main_t * im, u32 sa_index, u8 is_add)
   if (esp->add_del_sa_sess_cb)
     {
       clib_error_t *err = esp->add_del_sa_sess_cb (sa_index, is_add);
+      if (err)
+	return err;
+    }
+  if (is_add && im->tfs_add_del_sess_cb)
+    {
+      clib_error_t *err = im->tfs_add_del_sess_cb (sa_index, is_add);
       if (err)
 	return err;
     }
@@ -108,7 +122,6 @@ ipsec_check_support_cb (ipsec_main_t * im, ipsec_sa_t * sa)
     }
   return error;
 }
-
 
 static void
 ipsec_add_node (vlib_main_t * vm, const char *node_name,
@@ -383,6 +396,10 @@ crypto_engine_backend_register_post_node (vlib_main_t * vm)
     vnet_crypto_register_post_node (vm, "esp4-decrypt-tun-post");
   dit->esp6_tun_post_next =
     vnet_crypto_register_post_node (vm, "esp6-decrypt-tun-post");
+
+  /* XXX things changed above so our backend update probably needs to as well */
+  if (im->tfs_backend_update_cb)
+    (*im->tfs_backend_update_cb) (im->vlib_main);
 }
 
 static clib_error_t *

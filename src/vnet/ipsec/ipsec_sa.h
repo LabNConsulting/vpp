@@ -64,6 +64,20 @@ typedef enum
     IPSEC_INTEG_N_ALG,
 } ipsec_integ_alg_t;
 
+#define foreach_ipsec_sa_tfs_type \
+  _(0, NO_TFS,     "no")          \
+  _(1, IPTFS_CC,   "iptfs-cc")    \
+  _(2, IPTFS_NOCC, "iptfs-nocc")
+
+typedef enum
+{
+#define _(v,f, str) IPSEC_SA_TFS_TYPE_##f = v,
+  foreach_ipsec_sa_tfs_type
+#undef _
+    IPSEC_SA_TFS_N_TYPES,
+} ipsec_sa_tfs_type_t;
+
+
 typedef enum
 {
   IPSEC_PROTOCOL_AH = 0,
@@ -149,6 +163,8 @@ typedef struct
     u64 crypto_op_data;
   };
 
+  u8 tfs_type;
+
   /* data accessed by dataplane code should be above this comment */
     CLIB_CACHE_LINE_ALIGN_MARK (cacheline1);
 
@@ -230,6 +246,10 @@ foreach_ipsec_sa_flags
   }
   foreach_ipsec_sa_flags
 #undef _
+/* XXX chopps: needs to change if we have different TFS types */
+#define ipsec_sa_is_IPTFS(sa) ((sa)->tfs_type != 0)
+#define ipsec_sa_index_is_IPTFS(im, sa_index) \
+  ((sa_index) != ~0 && pool_elt_at_index ((im)->sad, (sa_index))->tfs_type != 0)
 /**
  * @brief
  * SA packet & bytes counters
@@ -246,6 +266,8 @@ extern int ipsec_sa_add_and_lock (u32 id,
 				  ipsec_integ_alg_t integ_alg,
 				  const ipsec_key_t * ik,
 				  ipsec_sa_flags_t flags,
+				  u8 tfs_type,
+				  void *tfs_config,
 				  u32 tx_table_id,
 				  u32 salt,
 				  const ip46_address_t * tunnel_src_addr,
@@ -260,6 +282,13 @@ extern void ipsec_sa_set_crypto_alg (ipsec_sa_t * sa,
 				     ipsec_crypto_alg_t crypto_alg);
 extern void ipsec_sa_set_integ_alg (ipsec_sa_t * sa,
 				    ipsec_integ_alg_t integ_alg);
+/* Are these used */
+extern int ipsec_set_sa_key (u32 id,
+			     const ipsec_key_t * ck, const ipsec_key_t * ik);
+extern u32 ipsec_get_sa_index_by_sa_id (u32 sa_id);
+/* end: Are these used */
+extern u8 ipsec_is_sa_used (u32 sa_index);
+extern u32 ipsec_sa_get_sw_if_index (vnet_main_t * vnm, u32 sa_index);
 
 typedef walk_rc_t (*ipsec_sa_walk_cb_t) (ipsec_sa_t * sa, void *ctx);
 extern void ipsec_sa_walk (ipsec_sa_walk_cb_t cd, void *ctx);
@@ -268,6 +297,7 @@ extern u8 *format_ipsec_crypto_alg (u8 * s, va_list * args);
 extern u8 *format_ipsec_integ_alg (u8 * s, va_list * args);
 extern u8 *format_ipsec_sa (u8 * s, va_list * args);
 extern u8 *format_ipsec_key (u8 * s, va_list * args);
+extern u8 *format_ipsec_sa_tfs_type (u8 * s, va_list * args);
 extern uword unformat_ipsec_crypto_alg (unformat_input_t * input,
 					va_list * args);
 extern uword unformat_ipsec_integ_alg (unformat_input_t * input,
@@ -276,6 +306,9 @@ extern uword unformat_ipsec_key (unformat_input_t * input, va_list * args);
 
 #define IPSEC_UDP_PORT_NONE ((u16)~0)
 
+extern uword unformat_ipsec_sa_tfs (unformat_input_t * input, va_list * args);
+extern uword unformat_ipsec_sa_tfs_type (unformat_input_t * input,
+					 va_list * args);
 /*
  * Anti Replay definitions
  */

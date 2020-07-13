@@ -29,7 +29,6 @@ vlib_combined_counter_main_t ipsec_sa_counters = {
   .stat_segment_name = "/net/ipsec/sa",
 };
 
-
 static clib_error_t *
 ipsec_call_add_del_callbacks (ipsec_main_t * im, ipsec_sa_t * sa,
 			      u32 sa_index, int is_add)
@@ -175,6 +174,8 @@ ipsec_sa_add_and_lock (u32 id,
 		       ipsec_integ_alg_t integ_alg,
 		       const ipsec_key_t * ik,
 		       ipsec_sa_flags_t flags,
+                       u8 _tfs_type,
+                       void *tfs_config,
 		       u32 tx_table_id,
 		       u32 salt,
 		       const ip46_address_t * tun_src,
@@ -206,6 +207,7 @@ ipsec_sa_add_and_lock (u32 id,
   sa->stat_index = sa_index;
   sa->protocol = proto;
   sa->flags = flags;
+  sa->tfs_type = _tfs_type;
   sa->salt = salt;
   sa->encrypt_thread_index = (vlib_num_workers ())? ~0 : 0;
   sa->decrypt_thread_index = (vlib_num_workers ())? ~0 : 0;
@@ -264,12 +266,29 @@ ipsec_sa_add_and_lock (u32 id,
       return VNET_API_ERROR_UNIMPLEMENTED;
     }
 
+  if (sa->tfs_type != IPSEC_SA_TFS_TYPE_NO_TFS)
+    {
+      if (!im->tfs_check_support_cb
+	  || (err = im->tfs_check_support_cb (sa, tfs_config)))
+	{
+	  clib_warning ("No TFS support");
+	  pool_put (im->sad, sa);
+	  return VNET_API_ERROR_UNIMPLEMENTED;
+	}
+      /* tfs_check_support_cb may update tfs_type in the SA to disable it */
+      if (sa->tfs_type != _tfs_type)
+	clib_warning ("TFS disabled outbound due to no config");
+    }
+
   err = ipsec_call_add_del_callbacks (im, sa, sa_index, 1);
+  if (!err && im->tfs_add_del_sa_cb)
+    err = im->tfs_add_del_sa_cb (sa_index, tfs_config, 1);
   if (err)
     {
       pool_put (im->sad, sa);
       return VNET_API_ERROR_SYSCALL_ERROR_1;
     }
+
 
   if (ipsec_sa_is_set_IS_TUNNEL (sa) && !ipsec_sa_is_set_IS_INBOUND (sa))
     {
@@ -366,15 +385,73 @@ ipsec_sa_del (ipsec_sa_t * sa)
   if (ipsec_sa_is_set_UDP_ENCAP (sa) && ipsec_sa_is_set_IS_INBOUND (sa))
     ipsec_unregister_udp_port (clib_net_to_host_u16 (sa->udp_hdr.dst_port));
 
+  if (im->tfs_add_del_sa_cb)
+    (void)im->tfs_add_del_sa_cb (sa_index, NULL, 0);
+
   if (ipsec_sa_is_set_IS_TUNNEL (sa) && !ipsec_sa_is_set_IS_INBOUND (sa))
     {
       fib_entry_untrack (sa->fib_entry_index, sa->sibling);
       dpo_reset (&sa->dpo);
     }
+
   vnet_crypto_key_del (vm, sa->crypto_key_index);
   if (sa->integ_alg != IPSEC_INTEG_ALG_NONE)
     vnet_crypto_key_del (vm, sa->integ_key_index);
   pool_put (im->sad, sa);
+}
+
+u32
+ipsec_sa_get_sw_if_index (vnet_main_t * vnm, u32 sa_index)
+{
+  ipsec_tunnel_if_t *t;
+  ipsec_main_t *im = &ipsec_main;
+  ipsec_sa_t *sa;
+  uword *p;
+
+  sa = pool_elt_at_index (im->sad, sa_index);
+  if (!ipsec_sa_is_set_IS_TUNNEL (sa))
+    {
+      clib_warning ("%s: Can't set MTU on non-tunnel!", __FUNCTION__);
+      return (u32) ~ 0;
+    }
+  if (!ipsec_sa_is_set_IS_TUNNEL_V6 (sa))
+    {
+      ipsec4_tunnel_key_t key4;
+      u32 pv;
+      key4.remote_ip.as_u32 = sa->tunnel_dst_addr.ip4.as_u32;
+      key4.spi = clib_host_to_net_u32 (sa->spi);
+      p = hash_get (im->ipsec4_if_pool_index_by_key, key4.as_u64);
+      if (!p)
+        {
+          clib_warning("%s: hash table nelts %u",
+                       __FUNCTION__, hash_elts (im->ipsec4_if_pool_index_by_key));
+          hash_foreach (key4.as_u64,
+                        pv,
+                        im->ipsec4_if_pool_index_by_key,
+                        ({clib_warning
+                            ("%s: key ip %U key spi %u value %u",
+                             __FUNCTION__,
+                             format_ip4_address,
+                             &key4.remote_ip,
+                             key4.spi, pv);}));
+        }
+    }
+  else
+    {
+      ipsec6_tunnel_key_t key6;
+      key6.remote_ip = sa->tunnel_dst_addr.ip6;
+      key6.spi = clib_host_to_net_u32 (sa->spi);
+      p = hash_get_mem (im->ipsec6_if_pool_index_by_key, &key6);
+    }
+  if (!p)
+    {
+      clib_warning
+	("%s: Can't get IPsec tunnel interface sa_index %u spi %u!",
+	 __FUNCTION__, sa_index, sa->spi);
+      return (u32) ~ 0;
+    }
+  t = pool_elt_at_index (im->tunnel_interfaces, *p);
+  return t->sw_if_index;
 }
 
 void

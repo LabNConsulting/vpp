@@ -607,6 +607,11 @@ esp_encrypt_inline (vlib_main_t * vm, vlib_node_runtime_t * node,
     }
   vec_reset_length (ptd->chunks);
 
+#if 0
+  clib_warning ("%s: esp_encrypt %u is_tun %u", __FUNCTION__,
+		frame->n_vectors, is_tun);
+#endif
+
   while (n_left > 0)
     {
       u32 sa_index0;
@@ -632,6 +637,19 @@ esp_encrypt_inline (vlib_main_t * vm, vlib_node_runtime_t * node,
 	  vnet_buffer (b[0])->ipsec.sad_index =
 	    sa_index0 = ipsec_tun_protect_get_sa_out
 	    (vnet_buffer (b[0])->ip.adj_index[VLIB_TX]);
+#if 0				/* XXX chopps old 19.08 code */
+	  u32 next0;
+	  sa_index0 = *(u32 *) vnet_feature_next_with_data (&next0, b[0],
+							    sizeof
+							    (sa_index0));
+	  next[0] = next0;
+
+#if 0
+	  clib_warning ("%s: next %s (%u)", __FUNCTION__,
+			vlib_get_next_node (vm, node->node_index,
+					    next[0])->name, next[0]);
+#endif
+#endif
 	}
       else
 	sa_index0 = vnet_buffer (b[0])->ipsec.sad_index;
@@ -749,8 +767,11 @@ esp_encrypt_inline (vlib_main_t * vm, vlib_node_runtime_t * node,
 	      hdr_len += len;
 	      ip6 = (ip6_header_t *) (payload - hdr_len);
 	      clib_memcpy_fast (ip6, &sa0->ip6_hdr, len);
-	      *next_hdr_ptr = (is_ip6 ?
-			       IP_PROTOCOL_IPV6 : IP_PROTOCOL_IP_IN_IP);
+	      if (!ipsec_sa_is_IPTFS (sa0))
+		*next_hdr_ptr = (is_ip6 ?
+				 IP_PROTOCOL_IPV6 : IP_PROTOCOL_IP_IN_IP);
+	      else
+		*next_hdr_ptr = IP_PROTOCOL_IPTFS;
 	      len = payload_len_total + hdr_len - len;
 	      ip6->payload_length = clib_net_to_host_u16 (len);
 	    }
@@ -761,8 +782,11 @@ esp_encrypt_inline (vlib_main_t * vm, vlib_node_runtime_t * node,
 	      hdr_len += len;
 	      ip4 = (ip4_header_t *) (payload - hdr_len);
 	      clib_memcpy_fast (ip4, &sa0->ip4_hdr, len);
-	      *next_hdr_ptr = (is_ip6 ?
-			       IP_PROTOCOL_IPV6 : IP_PROTOCOL_IP_IN_IP);
+	      if (!ipsec_sa_is_IPTFS (sa0))
+		*next_hdr_ptr = (is_ip6 ?
+				 IP_PROTOCOL_IPV6 : IP_PROTOCOL_IP_IN_IP);
+	      else
+		*next_hdr_ptr = IP_PROTOCOL_IPTFS;
 	      len = payload_len_total + hdr_len;
 	      esp_update_ip4_hdr (ip4, len, /* is_transport */ 0, 0);
 	    }
@@ -953,6 +977,16 @@ esp_encrypt_inline (vlib_main_t * vm, vlib_node_runtime_t * node,
 
   vlib_node_increment_counter (vm, node->node_index,
 			       ESP_ENCRYPT_ERROR_RX_PKTS, frame->n_vectors);
+
+#if 0
+  if (frame->n_vectors)
+    {
+      clib_warning ("%s: enqueue %u to next %s (%u) is_tun %u", __FUNCTION__,
+		    frame->n_vectors,
+		    vlib_get_next_node (vm, node->node_index, nexts[0])->name,
+		    nexts[0], is_tun);
+    }
+#endif
 
   vlib_buffer_enqueue_to_next (vm, node, from, nexts, frame->n_vectors);
   return frame->n_vectors;

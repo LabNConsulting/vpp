@@ -18,6 +18,7 @@
 #include <vnet/vnet.h>
 #include <vnet/api_errno.h>
 #include <vnet/ipsec/esp.h>
+#include <plugins/iptfs/ipsec_iptfs.h>
 
 u8 *
 format_esp_header (u8 * s, va_list * args)
@@ -27,6 +28,31 @@ format_esp_header (u8 * s, va_list * args)
 
   s = format (s, "ESP: spi %u (0x%08x), seq %u",
 	      spi, spi, clib_net_to_host_u32 (esp->seq));
+  return s;
+}
+
+/* packet trace format function */
+u8 *
+format_iptfs_header (u8 * s, va_list * args)
+{
+  ipsec_iptfs_header_t *h = va_arg (*args, ipsec_iptfs_header_t *);
+  if (h->basic.subtype == IPTFS_SUBTYPE_CC)
+    {
+      u32 r, a, x;
+      iptfs_cc_get_rtt_and_delays(&h->cc, &r, &a, &x);
+
+      s =
+	format (s,
+		"TFS CC Header: subtype: %x flags %x offset %u rtt %u actual-delay %u xmit-delay %u timeval %u timeecho %u loss_rate %u",
+		h->cc.subtype, h->cc.flags, clib_net_to_host_u16 (h->cc.block_offset), r, a, x, h->cc.tval, h->cc.techo, clib_net_to_host_u32 (h->cc.loss_rate)
+                );
+    }
+  else
+    {
+      s = format (s, "IPTFS Basic Header: subtype: %x resv %x offset %u",
+		  h->basic.subtype, h->basic.resv,
+		  clib_net_to_host_u16 (h->basic.block_offset));
+    }
   return s;
 }
 

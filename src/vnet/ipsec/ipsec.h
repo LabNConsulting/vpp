@@ -28,7 +28,22 @@
 
 typedef clib_error_t *(*add_del_sa_sess_cb_t) (u32 sa_index, u8 is_add);
 typedef clib_error_t *(*check_support_cb_t) (ipsec_sa_t * sa);
+
 typedef clib_error_t *(*enable_disable_cb_t) (int is_enable);
+
+/* enable_disable_cb_t is new -- integrate with TFS? */
+typedef clib_error_t *(*tfs_add_del_sa_cb_t) (u32 sa_index, void *tfs_config,
+					      u8 is_add);
+typedef clib_error_t *(*tfs_check_support_cb_t) (ipsec_sa_t * sa,
+						 void *tfs_config);
+typedef clib_error_t *(*tfs_backend_update_cb_t) (vlib_main_t * vm);
+typedef uword (*unformat_tfs_config_cb_t) (unformat_input_t *, va_list *);
+typedef u8 *(*format_tfs_config_cb_t) (u8 *, va_list *);
+typedef u8 *(*format_tfs_data_cb_t) (u8 *, va_list *);
+typedef void (*tfs_tunnel_feature_set_cb_t) (ipsec_tunnel_if_t *, u8);
+typedef void (*tfs_encrypt_debug_cb_t) (vlib_main_t * vm, ipsec_sa_t * sa,
+					void *esphdr, vlib_buffer_t * srcb,
+					vlib_buffer_t * dstb);
 
 typedef struct
 {
@@ -162,6 +177,22 @@ typedef struct
   u32 esp4_encrypt_l2_tun_node_index;
   u32 esp6_encrypt_l2_tun_node_index;
 
+  /* TFS backend */
+  u32 tfs_encap_node_index;
+  u32 tfs_decap_node_index;
+
+  tfs_check_support_cb_t tfs_check_support_cb;
+  format_tfs_config_cb_t tfs_format_config_cb;
+  format_tfs_data_cb_t tfs_format_data_cb;
+  unformat_tfs_config_cb_t tfs_unformat_config_cb;
+
+  tfs_add_del_sa_cb_t tfs_add_del_sa_cb;
+  add_del_sa_sess_cb_t tfs_add_del_sess_cb;
+  add_del_sa_sess_cb_t tfs_add_del_policy_cb;
+  tfs_backend_update_cb_t tfs_backend_update_cb;
+  tfs_tunnel_feature_set_cb_t tfs_tunnel_feature_set_cb;
+  tfs_encrypt_debug_cb_t tfs_encrypt_debug_cb;
+
   /* pool of ah backends */
   ipsec_ah_backend_t *ah_backends;
   /* pool of esp backends */
@@ -274,6 +305,11 @@ u32 ipsec_register_esp_backend (vlib_main_t * vm, ipsec_main_t * im,
 				check_support_cb_t esp_check_support_cb,
 				add_del_sa_sess_cb_t esp_add_del_sa_sess_cb,
 				enable_disable_cb_t enable_disable_cb);
+
+/* XXX this was from 19.08 not around anymore! */
+void ipsec_add_feature (const char *arc_name,
+			const char *node_name, u32 * out_feature_index);
+/* XXX see above */
 
 int ipsec_select_ah_backend (ipsec_main_t * im, u32 ah_backend_idx);
 int ipsec_select_esp_backend (ipsec_main_t * im, u32 esp_backend_idx);

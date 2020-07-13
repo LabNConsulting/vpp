@@ -35,6 +35,7 @@
 #include <vnet/ipsec/ipsec.h>
 #include <vnet/ipsec/ipsec_tun.h>
 #include <vnet/ipsec/ipsec_itf.h>
+#include <vnet/ipsec/ipsec_sa.h>
 #endif /* IPSEC */
 
 #define vl_typedefs		/* define message structures */
@@ -344,8 +345,9 @@ static void vl_api_ipsec_sad_entry_add_del_t_handler
   ipsec_integ_alg_t integ_alg;
   ipsec_protocol_t proto;
   ipsec_sa_flags_t flags;
-  u32 id, spi, sa_index = ~0;
+  u32 id, tfs_type, spi, sa_index = ~0;
   int rv;
+  void *tfs_config = NULL;
 
 #if WITH_LIBSSL > 0
 
@@ -375,10 +377,15 @@ static void vl_api_ipsec_sad_entry_add_del_t_handler
   ip_address_decode (&mp->entry.tunnel_src, &tun_src);
   ip_address_decode (&mp->entry.tunnel_dst, &tun_dst);
 
+  tfs_type = ntohl (mp->entry.tfs_type);
+  tfs_config =
+    ipsec_tfs_config_decode (mp->entry.tfs_config, mp->entry.tfs_config_len);
+
   if (mp->is_add)
     rv = ipsec_sa_add_and_lock (id, spi, proto,
 				crypto_alg, &crypto_key,
-				integ_alg, &integ_key, flags,
+				integ_alg, &integ_key, flags, tfs_type,
+				tfs_config,
 				0, mp->entry.salt, &tun_src, &tun_dst,
 				&sa_index, htons (mp->entry.udp_src_port),
 				htons (mp->entry.udp_dst_port));
@@ -390,6 +397,7 @@ static void vl_api_ipsec_sad_entry_add_del_t_handler
 #endif
 
 out:
+  vec_free (tfs_config);
   /* *INDENT-OFF* */
   REPLY_MACRO2 (VL_API_IPSEC_SAD_ENTRY_ADD_DEL_REPLY,
   {
@@ -601,6 +609,7 @@ vl_api_ipsec_tunnel_if_add_del_t_handler (vl_api_ipsec_tunnel_if_add_del_t *
 {
   vl_api_ipsec_tunnel_if_add_del_reply_t *rmp;
   u32 sw_if_index = ~0;
+  void *tfs_config = NULL;
   int rv;
 
 #if WITH_LIBSSL > 0
@@ -648,16 +657,25 @@ vl_api_ipsec_tunnel_if_add_del_t_handler (vl_api_ipsec_tunnel_if_add_del_t *
       goto done;
     }
 
+  u32 tfs_type = ntohl (mp->tfs_type);
   if (mp->is_add)
     {
       // remote = input, local = output
       /* create an ip-ip tunnel, then the two SA, then bind them */
-      rv = ipip_add_tunnel (transport,
-			    (mp->renumber ? ntohl (mp->show_instance) : ~0),
-			    &local_ip,
-			    &remote_ip, fib_index,
-			    TUNNEL_ENCAP_DECAP_FLAG_NONE, IP_DSCP_CS0,
-			    TUNNEL_MODE_P2P, &sw_if_index);
+      if (tfs_type)
+	{
+	  /* XXX chopps create an ipsec interface here. */
+	  tfs_config =
+	    ipsec_tfs_config_decode (mp->tfs_config, mp->tfs_config_len);
+	  rv = VNET_API_ERROR_UNIMPLEMENTED;
+	}
+      else
+	rv = ipip_add_tunnel (transport,
+			      (mp->renumber ? ntohl (mp->show_instance) : ~0),
+			      &local_ip,
+			      &remote_ip, fib_index,
+			      TUNNEL_ENCAP_DECAP_FLAG_NONE, IP_DSCP_CS0,
+			      TUNNEL_MODE_P2P, &sw_if_index);
 
       if (rv)
 	goto done;
@@ -708,6 +726,8 @@ vl_api_ipsec_tunnel_if_add_del_t_handler (vl_api_ipsec_tunnel_if_add_del_t *
       ipsec_sa_unlock_id (ipsec_tun_mk_input_sa_id (sw_if_index));
       ipsec_sa_unlock_id (ipsec_tun_mk_output_sa_id (sw_if_index));
     }
+  else if (tfs_type)
+    rv = VNET_API_ERROR_NO_SUCH_ENTRY;
   else
     {
       /* *INDENT-OFF* */
@@ -734,6 +754,7 @@ vl_api_ipsec_tunnel_if_add_del_t_handler (vl_api_ipsec_tunnel_if_add_del_t *
   rv = VNET_API_ERROR_UNIMPLEMENTED;
 #endif
 done:
+  vec_free (tfs_config);
   /* *INDENT-OFF* */
   REPLY_MACRO2 (VL_API_IPSEC_TUNNEL_IF_ADD_DEL_REPLY,
   ({
@@ -852,6 +873,10 @@ send_ipsec_sa_details (ipsec_sa_t * sa, void *arg)
     }
   else
     mp->sw_if_index = ~0;
+
+  mp->entry.tfs_type = htonl (sa->tfs_type);
+
+  /* XXX need to return TFS config too */
 
   if (ipsec_sa_is_set_IS_TUNNEL (sa))
     {

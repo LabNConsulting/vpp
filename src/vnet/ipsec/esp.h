@@ -78,6 +78,7 @@ typedef struct esp_aead_t_
 #define ESP_MAX_ICV_SIZE	(32)
 
 u8 *format_esp_header (u8 * s, va_list * args);
+u8 *format_iptfs_header (u8 * s, va_list * args);
 
 /* TODO seq increment should be atomic to be accessed by multiple workers */
 always_inline int

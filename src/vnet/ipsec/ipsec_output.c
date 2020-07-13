@@ -217,6 +217,15 @@ ipsec_output_inline (vlib_main_t * vm, vlib_node_runtime_t * node,
       iph_offset = vnet_buffer (b0)->ip.save_rewrite_length;
       ip0 = (ip4_header_t *) ((u8 *) vlib_buffer_get_current (b0)
 			      + iph_offset);
+#if 0				/* XXX chopps */
+      clib_warning ("%s: packet received from %U to %U",
+		    __FUNCTION__, format_ip4_address, ip0->src_address.as_u8,
+		    format_ip4_address, ip0->dst_address.as_u8);
+
+      clib_warning ("%s: last_sw_if_index %u sw_if_index0 %u", __FUNCTION__,
+		    last_sw_if_index, sw_if_index0);
+#endif
+
 
       /* lookup for SPD only if sw_if_index is changed */
       if (PREDICT_FALSE (last_sw_if_index != sw_if_index0))
@@ -299,10 +308,14 @@ ipsec_output_inline (vlib_main_t * vm, vlib_node_runtime_t * node,
 	      nc_protect++;
 	      sa = pool_elt_at_index (im->sad, p0->sa_index);
 	      if (sa->protocol == IPSEC_PROTOCOL_ESP)
-		if (is_ipv6)
-		  next_node_index = im->esp6_encrypt_node_index;
-		else
-		  next_node_index = im->esp4_encrypt_node_index;
+		{
+		  if (ipsec_sa_is_IPTFS (sa))
+		    next_node_index = im->tfs_encap_node_index;
+		  else if (is_ipv6)
+		    next_node_index = im->esp6_encrypt_node_index;
+		  else
+		    next_node_index = im->esp4_encrypt_node_index;
+		}
 	      else if (is_ipv6)
 		next_node_index = im->ah6_encrypt_node_index;
 	      else

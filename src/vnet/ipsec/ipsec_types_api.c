@@ -172,6 +172,24 @@ ipsec_sad_flags_encode (const ipsec_sa_t * sa)
   return clib_host_to_net_u32 (flags);
 }
 
+void *
+ipsec_tfs_config_decode (u8 * s, u8 slen)
+{
+  ipsec_main_t *im = &ipsec_main;
+  unformat_input_t uf;
+  void *tfs_config = NULL;
+
+  if (!im->tfs_unformat_config_cb)
+    return NULL;
+
+  clib_warning ("%s: %*s", __FUNCTION__, slen, s);
+
+  unformat_init_string (&uf, (char *) s, slen);
+  unformat (&uf, "%U", im->tfs_unformat_config_cb, &tfs_config);
+  unformat_free (&uf);
+  return tfs_config;
+}
+
 /*
  * fd.io coding-style-patch-verification: ON
  *

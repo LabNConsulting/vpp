@@ -75,6 +75,13 @@ enum ipsec_sad_flags
   IPSEC_API_SAD_FLAG_IS_INBOUND = 0x40,
 };
 
+enum ipsec_sad_tfs_type
+{
+  IPSEC_API_SAD_TFS_TYPE_NONE = 0,
+  IPSEC_API_SAD_TFS_TYPE_IPTFS_CC,
+  IPSEC_API_SAD_TFS_TYPE_IPTFS_NOCC,
+};
+
 enum ipsec_proto
 {
   IPSEC_API_PROTO_ESP = 50,
@@ -131,6 +138,9 @@ typedef ipsec_sad_entry
   u32 salt;
   u16 udp_src_port [default=4500];
   u16 udp_dst_port [default=4500];
+  vl_api_ipsec_sad_tfs_type_t tfs_type;
+  u8 tfs_config_len;
+  u8 tfs_config[256];
 };
 
 /*

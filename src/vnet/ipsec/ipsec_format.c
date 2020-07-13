@@ -266,6 +266,36 @@ format_ipsec_sa_flags (u8 * s, va_list * args)
 }
 
 u8 *
+format_ipsec_sa_tfs_type (u8 * s, va_list * args)
+{
+  u32 i = va_arg (*args, u32);
+  char *t = 0;
+  switch (i)
+    {
+#define _(v,f,str) case IPSEC_SA_TFS_TYPE_##f: t = str; break;
+      foreach_ipsec_sa_tfs_type
+#undef _
+    default:
+      return format (s, "unknown (%u)", i);
+    }
+  s = format (s, "%s", t);
+  return s;
+}
+
+uword
+unformat_ipsec_sa_tfs_type (unformat_input_t * input, va_list * args)
+{
+  u32 *r = va_arg (*args, u32 *);
+  if (0);
+#define _(v,f,str) else if (unformat (input, str)) *r = IPSEC_SA_TFS_TYPE_##f;
+  foreach_ipsec_sa_tfs_type
+#undef _
+    else
+    return 0;
+  return 1;
+}
+
+u8 *
 format_ipsec_sa (u8 * s, va_list * args)
 {
   u32 sai = va_arg (*args, u32);
@@ -283,9 +313,13 @@ format_ipsec_sa (u8 * s, va_list * args)
 
   sa = pool_elt_at_index (im->sad, sai);
 
-  s = format (s, "[%d] sa %u (0x%x) spi %u (0x%08x) protocol:%s flags:[%U]",
-	      sai, sa->id, sa->id, sa->spi, sa->spi,
-	      sa->protocol ? "esp" : "ah", format_ipsec_sa_flags, sa->flags);
+  s =
+    format (s,
+	    "[%d] sa %u (0x%x) spi %u (0x%08x) mode %s%s%s protocol:%s flags:[%U]",
+	    sai, sa->id, sa->id, sa->spi, sa->spi, sa->tfs_type ? "tfs " : "",
+	    ipsec_sa_is_set_IS_TUNNEL (sa) ? "tunnel" : "transport",
+	    ipsec_sa_is_set_IS_TUNNEL_V6 (sa) ? "-ip6" : "",
+	    sa->protocol ? "esp" : "ah", format_ipsec_sa_flags, sa->flags);
 
   if (!(flags & IPSEC_FORMAT_DETAIL))
     goto done;
@@ -313,6 +347,16 @@ format_ipsec_sa (u8 * s, va_list * args)
   s = format (s, "\n   UDP:[src:%d dst:%d]",
 	      clib_host_to_net_u16 (sa->udp_hdr.src_port),
 	      clib_host_to_net_u16 (sa->udp_hdr.dst_port));
+
+  if (!sa->tfs_type)
+    s = format (s, "\n   no tfs configured");
+  else
+    {
+      if (im->tfs_format_config_cb)
+	s = format (s, "\n   tfs config: %U", im->tfs_format_config_cb, sai);
+      if (im->tfs_format_data_cb)
+	s = format (s, "\n   tfs data: %U", im->tfs_format_data_cb, sai);
+    }
 
   vlib_get_combined_counter (&ipsec_sa_counters, sai, &counts);
   s = format (s, "\n   packets %u bytes %u", counts.packets, counts.bytes);

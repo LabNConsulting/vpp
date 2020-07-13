@@ -31,6 +31,7 @@
 _(DROP, "error-drop")                           \
 _(IP4_INPUT, "ip4-input-no-checksum")           \
 _(IP6_INPUT, "ip6-input")                       \
+_(IPTFS_DECAP, "iptfs-decap-reorder")           \
 _(L2_INPUT, "l2-input")                         \
 _(HANDOFF, "handoff")				\
 _(PENDING, "pending")
@@ -910,6 +911,14 @@ esp_decrypt_post_crypto (vlib_main_t * vm, vlib_node_runtime_t * node,
 	  b->current_length = pd->current_length - adv;
 	  esp_remove_tail (vm, b, lb, tail);
 	}
+      else if (next_header == IP_PROTOCOL_IPTFS)
+        {
+          /* esp_header_t *esp0 = */
+          /*   (esp_header_t *) (b[0]->data + pd->current_data); */
+          next[0] = ESP_DECRYPT_NEXT_IPTFS_DECAP;
+          b->current_data = pd->current_data + adv;
+          b->current_length = pd->current_length - adv;
+        }
       else
 	{
 	  if (is_tun && next_header == IP_PROTOCOL_GRE)
@@ -1154,6 +1163,12 @@ esp_decrypt_inline (vlib_main_t * vm,
 	}
 
       pd->current_length = b[0]->current_length;
+
+      /* XXX chopps for some reason GCM is zeroing this value out! */
+      if (ipsec_sa_is_IPTFS (sa0))
+	vnet_buffer (b[0])->ipsec.iptfs_esp_seq =
+	  ((u64) sa0->seq_hi << 32) +
+	  clib_net_to_host_u32 (((esp_header_t *) payload)->seq);
 
       /* anti-reply check */
       if (ipsec_sa_anti_replay_check (sa0, pd->seq))

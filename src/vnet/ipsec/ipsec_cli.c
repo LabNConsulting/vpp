@@ -76,6 +76,7 @@ ipsec_sa_add_del_command_fn (vlib_main_t * vm,
 			     unformat_input_t * input,
 			     vlib_cli_command_t * cmd)
 {
+  ipsec_main_t *im = &ipsec_main;
   unformat_input_t _line_input, *line_input = &_line_input;
   ip46_address_t tun_src = { }, tun_dst =
   {
@@ -91,11 +92,14 @@ ipsec_sa_add_del_command_fn (vlib_main_t * vm,
   u16 udp_src, udp_dst;
   int is_add, rv;
   u32 m_args = 0;
+  u32 tfs_type;
+  void *tfs_config = 0;
 
   salt = 0;
   error = NULL;
   is_add = 0;
   flags = IPSEC_SA_FLAG_NONE;
+  tfs_type = 0;
   proto = IPSEC_PROTOCOL_ESP;
   integ_alg = IPSEC_INTEG_ALG_NONE;
   crypto_alg = IPSEC_CRYPTO_ALG_NONE;
@@ -154,6 +158,12 @@ ipsec_sa_add_del_command_fn (vlib_main_t * vm,
       else if (unformat (line_input, "udp-encap"))
 	flags |= IPSEC_SA_FLAG_UDP_ENCAP;
       else
+	if (im->tfs_unformat_config_cb &&
+	    unformat (line_input, "tfs %U %U",
+		      unformat_ipsec_sa_tfs_type,
+		      &tfs_type, im->tfs_unformat_config_cb, &tfs_config))
+	;
+      else
 	{
 	  error = clib_error_return (0, "parse error: '%U'",
 				     format_unformat_error, line_input);
@@ -180,20 +190,23 @@ ipsec_sa_add_del_command_fn (vlib_main_t * vm,
 	  error = clib_error_return (0, "missing spi");
 	  goto done;
 	}
-      rv = ipsec_sa_add_and_lock (id, spi, proto, crypto_alg,
-				  &ck, integ_alg, &ik, flags,
-				  0, clib_host_to_net_u32 (salt),
-				  &tun_src, &tun_dst, &sai, udp_src, udp_dst);
-    }
+    rv = ipsec_sa_add_and_lock (id, spi, proto, crypto_alg,
+				&ck, integ_alg, &ik, flags,
+				tfs_type, tfs_config,
+				0, clib_host_to_net_u32 (salt),
+				&tun_src, &tun_dst, &sai, udp_src, udp_dst);
+          }
   else
     {
       rv = ipsec_sa_unlock_id (id);
     }
 
+
   if (rv)
     error = clib_error_return (0, "failed");
 
 done:
+  vec_free (tfs_config);
   unformat_free (line_input);
 
   return error;
@@ -547,13 +560,13 @@ clear_ipsec_sa_command_fn (vlib_main_t * vm,
 /* *INDENT-OFF* */
 VLIB_CLI_COMMAND (show_ipsec_sa_command, static) = {
     .path = "show ipsec sa",
-    .short_help = "show ipsec sa [index]",
+    .short_help = "show ipsec sa [index] [detail]",
     .function = show_ipsec_sa_command_fn,
 };
 
 VLIB_CLI_COMMAND (clear_ipsec_sa_command, static) = {
     .path = "clear ipsec sa",
-    .short_help = "clear ipsec sa [index]",
+    .short_help = "clear ipsec sa [index] [detail]",
     .function = clear_ipsec_sa_command_fn,
 };
 /* *INDENT-ON* */
@@ -793,6 +806,10 @@ create_ipsec_tunnel_command_fn (vlib_main_t * vm,
   ipsec_sa_flags_t flags;
   u32 local_spi, remote_spi, salt = 0, table_id, fib_index;
   u32 instance = ~0;
+
+  void *tfs_config = 0;
+  u32 tfs_type = 0;
+
   int rv;
   u32 m_args = 0;
   u8 ipv4_set = 0;
@@ -866,6 +883,12 @@ create_ipsec_tunnel_command_fn (vlib_main_t * vm,
       else if (unformat (line_input, "integ-alg %U",
 			 unformat_ipsec_integ_alg, &integ_alg))
 	;
+      else if (ipsec_main.tfs_unformat_config_cb &&
+	       unformat (line_input, "tfs %U %U",
+			 unformat_ipsec_sa_tfs_type,
+			 &tfs_type, ipsec_main.tfs_unformat_config_cb,
+			 &tfs_config))
+	;
       else if (unformat (line_input, "del"))
 	is_add = 0;
       else if (unformat (line_input, "nh &U", unformat_ip_address, &nh))
@@ -895,7 +918,15 @@ create_ipsec_tunnel_command_fn (vlib_main_t * vm,
       goto done;
     }
 
-  if (is_add)
+  if (tfs_type)
+    {
+      // XXX chopps impelment
+      // a.tfs_type = tfs_type;
+      // a.tfs_config = tfs_config;
+      // rv = ipsec_add_del_tunnel_if (&a);
+      rv = VNET_API_ERROR_UNIMPLEMENTED;
+    }
+  else if (is_add)
     {
       // remote = input, local = output
       u32 sw_if_index;
@@ -945,6 +976,7 @@ create_ipsec_tunnel_command_fn (vlib_main_t * vm,
     }
 
 done:
+  vec_free (tfs_config);
   unformat_free (line_input);
 
   return error;

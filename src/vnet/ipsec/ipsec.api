@@ -341,6 +341,9 @@ define ipsec_spd_interface_details {
     @param udp_encap - enable UDP encapsulation for NAT traversal
     @param tx_table_id - the FIB id used after packet encap
     @param salt - for use with counter mode ciphers
+    @param tfs_type - TFS type if enabled (non-zero).
+    @param tfs_config - TFS config as string if TFS enabled.
+    @param tfs_config_len - TFS config string length
 */
 define ipsec_tunnel_if_add_del {
   option deprecated;
@@ -368,6 +371,9 @@ define ipsec_tunnel_if_add_del {
   bool udp_encap;
   u32 tx_table_id;
   u32 salt;
+  vl_api_ipsec_sad_tfs_type_t tfs_type;
+  u8 tfs_config_len;
+  u8 tfs_config[256];
 };
 
 /** \brief Add/delete IPsec tunnel interface response

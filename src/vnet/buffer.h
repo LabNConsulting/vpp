@@ -309,8 +309,15 @@ typedef struct
     /* interface output features */
     struct
     {
+      /* order matters here, we don't want to clobber ip adj data with sad_index
+       * on output path with sad_index as we may need to send ICMP unreach.
+       * On input path (where we set iptfs_esp_seq we do not send ICMP.
+       */
+      u64 iptfs_esp_seq;
       u32 sad_index;
       u32 protect_index;
+      u16 tfs_actual_data;	/* track amount of real data in packet */
+      u8 iptfs_reused_user;     /* indicate buffer is non-zeroed */
     } ipsec;
 
     /* MAP */

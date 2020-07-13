@@ -98,6 +98,13 @@ vlib_buffer_get_default_data_size (vlib_main_t * vm)
   return vm->buffer_main->default_data_size;
 }
 
+always_inline u32
+vlib_buffer_put_space_avail (vlib_main_t * vm, vlib_buffer_t * b)
+{
+  return vlib_buffer_get_default_data_size (vm) - b->current_data -
+    b->current_length;
+}
+
 static_always_inline void
 vlib_buffer_copy_indices (u32 * dst, u32 * src, u32 n_indices)
 {

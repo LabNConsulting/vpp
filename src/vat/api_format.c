@@ -42,6 +42,7 @@
 #include <vnet/classify/flow_classify.h>
 #include <vnet/mpls/mpls.h>
 #include <vnet/ipsec/ipsec.h>
+#include <vnet/ipsec/ipsec_sa.h>
 #include <inttypes.h>
 #include <vnet/ip/ip6_hop_by_hop.h>
 #include <vnet/ip/ip_source_and_port_range_check.h>
@@ -13689,6 +13690,7 @@ api_ipsec_sad_entry_add_del (vat_main_t * vam)
   u32 sad_id = 0, spi = 0;
   u8 *ck = 0, *ik = 0;
   u8 is_add = 1;
+  u8 tfs_type;
 
   vl_api_ipsec_crypto_alg_t crypto_alg = IPSEC_API_CRYPTO_ALG_NONE;
   vl_api_ipsec_integ_alg_t integ_alg = IPSEC_API_INTEG_ALG_NONE;
@@ -13696,6 +13698,8 @@ api_ipsec_sad_entry_add_del (vat_main_t * vam)
   vl_api_ipsec_proto_t protocol = IPSEC_API_PROTO_AH;
   vl_api_address_t tun_src, tun_dst;
   int ret;
+
+  tfs_type = 0;
 
   while (unformat_check_input (i) != UNFORMAT_END_OF_INPUT)
     {
@@ -13732,6 +13736,10 @@ api_ipsec_sad_entry_add_del (vat_main_t * vam)
 	;
       else if (unformat (i, "integ_key %U", unformat_hex_string, &ik))
 	;
+      /* XXX come up with some way to specify TFS better */
+      /* XXX so much duplication of code.. need to have 1 common parser for types and flags */
+      /* if (unformat (i, "tfs %U", unformat_ipsec_api_tfs_type, &tfs_type)) */
+      /*   ; */
       else
 	{
 	  clib_warning ("parse error '%U'", format_unformat_error, i);
@@ -13747,6 +13755,7 @@ api_ipsec_sad_entry_add_del (vat_main_t * vam)
   mp->entry.protocol = protocol;
   mp->entry.spi = ntohl (spi);
   mp->entry.flags = flags;
+  mp->entry.tfs_type = tfs_type;
 
   mp->entry.crypto_algorithm = crypto_alg;
   mp->entry.integrity_algorithm = integ_alg;
@@ -13987,7 +13996,7 @@ vl_api_ipsec_sa_details_t_handler (vl_api_ipsec_sa_details_t * mp)
 	 "crypto_key %U integ_alg %u integ_key %U flags %x "
 	 "tunnel_src_addr %U tunnel_dst_addr %U "
 	 "salt %u seq_outbound %lu last_seq_inbound %lu "
-	 "replay_window %lu stat_index %u\n",
+	 "replay_window %lu stat_index %u tfs_type %d\n",
 	 ntohl (mp->entry.sad_id),
 	 ntohl (mp->sw_if_index),
 	 ntohl (mp->entry.spi),
@@ -14001,7 +14010,8 @@ vl_api_ipsec_sa_details_t_handler (vl_api_ipsec_sa_details_t * mp)
 	 &mp->entry.tunnel_dst, ntohl (mp->salt),
 	 clib_net_to_host_u64 (mp->seq_outbound),
 	 clib_net_to_host_u64 (mp->last_seq_inbound),
-	 clib_net_to_host_u64 (mp->replay_window), ntohl (mp->stat_index));
+	 clib_net_to_host_u64 (mp->replay_window), ntohl (mp->stat_index),
+	 ntohl (mp->entry.tfs_type));
 }
 
 #define vl_api_ipsec_sa_details_t_endian vl_noop_handler
@@ -14050,6 +14060,7 @@ static void vl_api_ipsec_sa_details_t_handler_json
   vat_json_object_add_uint (node, "replay_window",
 			    clib_net_to_host_u64 (mp->replay_window));
   vat_json_object_add_uint (node, "stat_index", ntohl (mp->stat_index));
+  vat_json_object_add_uint (node, "tfs_type", ntohl (mp->entry.tfs_type));
 }
 
 static int

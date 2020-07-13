@@ -27,6 +27,7 @@
 #include <vnet/ipsec/ipsec_tun.h>
 #include <dpdk/device/dpdk.h>
 #include <dpdk/device/dpdk_priv.h>
+#include <iptfs/ipsec_iptfs.h>
 
 #define foreach_esp_encrypt_next                   \
 _(DROP, "error-drop")                              \
@@ -74,6 +75,9 @@ typedef struct
 {
   ipsec_crypto_alg_t crypto_alg;
   ipsec_integ_alg_t integ_alg;
+  u16 iv_size;
+  u16 trunc_size;
+  u8 next_header;
   u8 packet_data[64];
 } esp_encrypt_trace_t;
 
@@ -87,25 +91,32 @@ format_esp_encrypt_trace (u8 * s, va_list * args)
   ip4_header_t *ih4 = (ip4_header_t *) t->packet_data;
   u32 indent = format_get_indent (s), offset;
 
-  s = format (s, "cipher %U auth %U\n",
-	      format_ipsec_crypto_alg, t->crypto_alg,
-	      format_ipsec_integ_alg, t->integ_alg);
+  s =
+    format (s, "cipher %U auth %U iv_size %u trunc_size %u next_header %u\n",
+	    format_ipsec_crypto_alg, t->crypto_alg, format_ipsec_integ_alg,
+	    t->integ_alg, t->iv_size, t->trunc_size, t->next_header);
 
-  if ((ih4->ip_version_and_header_length & 0xF0) == 0x60)
-    {
-      s = format (s, "%U%U", format_white_space, indent,
-		  format_ip6_header, ih4);
-      offset = sizeof (ip6_header_t);
-    }
+  if (t->next_header == IP_PROTOCOL_IPTFS)
+    s = format (s, "%U%U", format_white_space, indent, format_iptfs_header,
+		t->packet_data);
   else
     {
-      s = format (s, "%U%U", format_white_space, indent,
-		  format_ip4_header, ih4);
-      offset = ip4_header_bytes (ih4);
-    }
+      if ((ih4->ip_version_and_header_length & 0xF0) == 0x60)
+	{
+	  s = format (s, "%U%U", format_white_space, indent,
+		      format_ip6_header, ih4);
+	  offset = sizeof (ip6_header_t);
+	}
+      else
+	{
+	  s = format (s, "%U%U", format_white_space, indent,
+		      format_ip4_header, ih4);
+	  offset = ip4_header_bytes (ih4);
+	}
 
-  s = format (s, "\n%U%U", format_white_space, indent,
-	      format_esp_header, t->packet_data + offset);
+      s = format (s, "\n%U%U", format_white_space, indent,
+		  format_esp_header, t->packet_data + offset);
+    }
 
   return s;
 }
@@ -172,7 +183,7 @@ dpdk_esp_encrypt_inline (vlib_main_t * vm,
 	  u8 next_hdr_type;
 	  u32 iv_size;
 	  u16 orig_sz;
-	  u8 trunc_size;
+	  u8 trunc_size = 0;
 	  u16 rewrite_len;
 	  u16 udp_encap_adv = 0;
 	  struct rte_mbuf *mb0;
@@ -186,6 +197,11 @@ dpdk_esp_encrypt_inline (vlib_main_t * vm,
 	  b0 = vlib_get_buffer (vm, bi0);
 	  ih0 = vlib_buffer_get_current (b0);
 	  mb0 = rte_mbuf_from_vlib_buffer (b0);
+
+	  f0 = NULL;		/* init so not uninit */
+	  iv_size = 0;		/* init so not uninit */
+	  trunc_size = 0;	/* init so not uninit */
+	  next_hdr_type = 0;	/* init so not uninit */
 
 	  /* ih0/ih6_0 */
 	  CLIB_PREFETCH (ih0, sizeof (ih6_0[0]), LOAD);
@@ -307,6 +323,7 @@ dpdk_esp_encrypt_inline (vlib_main_t * vm,
 	     1, b0->current_length);
 
 	  /* Update tunnel interface tx counters */
+	  /* XXX chopps: so is_tun is never set from IPTFS how do we track the stats? */
 	  if (is_tun)
 	    vlib_increment_combined_counter
 	      (vim->combined_sw_if_counters + VNET_INTERFACE_COUNTER_TX,
@@ -340,8 +357,11 @@ dpdk_esp_encrypt_inline (vlib_main_t * vm,
 		  vlib_buffer_advance (b0, -adv);
 		  oh0 = vlib_buffer_get_current (b0);
 		  ouh0 = vlib_buffer_get_current (b0);
-		  next_hdr_type = (is_ip6 ?
-				   IP_PROTOCOL_IPV6 : IP_PROTOCOL_IP_IN_IP);
+		  if (!ipsec_sa_is_IPTFS (sa0))
+		    next_hdr_type = (is_ip6 ?
+				     IP_PROTOCOL_IPV6 : IP_PROTOCOL_IP_IN_IP);
+		  else
+		    next_hdr_type = IP_PROTOCOL_IPTFS;
 		  /*
 		   * oh0->ip4.ip_version_and_header_length = 0x45;
 		   * oh0->ip4.tos = ih0->ip4.tos;
@@ -381,14 +401,18 @@ dpdk_esp_encrypt_inline (vlib_main_t * vm,
 		  u8 adv =
 		    sizeof (ip6_header_t) + sizeof (esp_header_t) + iv_size;
 		  vlib_buffer_advance (b0, -adv);
-		  ih6_0 = (ip6_and_esp_header_t *) ih0;
 		  oh6_0 = vlib_buffer_get_current (b0);
-
-		  next_hdr_type = (is_ip6 ?
-				   IP_PROTOCOL_IPV6 : IP_PROTOCOL_IP_IN_IP);
-
-		  oh6_0->ip6.ip_version_traffic_class_and_flow_label =
-		    ih6_0->ip6.ip_version_traffic_class_and_flow_label;
+		  if (ipsec_sa_is_IPTFS (sa0))
+		    next_hdr_type = IP_PROTOCOL_IPTFS;
+		  else
+		    {
+		      next_hdr_type = (is_ip6 ?
+				       IP_PROTOCOL_IPV6 :
+				       IP_PROTOCOL_IP_IN_IP);
+		      ih6_0 = (ip6_and_esp_header_t *) ih0;
+		      oh6_0->ip6.ip_version_traffic_class_and_flow_label =
+			ih6_0->ip6.ip_version_traffic_class_and_flow_label;
+		    }
 
 		  oh6_0->ip6.protocol = IP_PROTOCOL_IPSEC_ESP;
 		  oh6_0->ip6.hop_limit = 254;
@@ -471,6 +495,14 @@ dpdk_esp_encrypt_inline (vlib_main_t * vm,
 	  u16 pad_payload_len = ((orig_sz + 2) + mask) & ~mask;
 	  u8 pad_bytes = pad_payload_len - 2 - orig_sz;
 
+	  u16 avail = vlib_buffer_put_space_avail (vm, b0);
+	  if (avail < pad_bytes + 2 + trunc_size)
+	    {
+	      clib_warning
+		("%s: XXX BUG avail: %u ask %u (pad_bytes %u trunc_size %u + 2), cdata %u clen %u",
+		 __FUNCTION__, avail, pad_bytes + 2 + trunc_size, pad_bytes,
+		 trunc_size, b0->current_data, b0->current_length);
+	    }
 	  u8 *padding =
 	    vlib_buffer_put_uninit (b0, pad_bytes + 2 + trunc_size);
 
@@ -573,12 +605,32 @@ dpdk_esp_encrypt_inline (vlib_main_t * vm,
 		vlib_add_trace (vm, node, b0, sizeof (*tr));
 	      tr->crypto_alg = sa0->crypto_alg;
 	      tr->integ_alg = sa0->integ_alg;
+	      tr->next_header = f0 ? f0->next_header : 0;
+	      tr->iv_size = iv_size;
+	      tr->trunc_size = trunc_size;
 	      u8 *p = vlib_buffer_get_current (b0);
 	      if (!ipsec_sa_is_set_IS_TUNNEL (sa0) && !is_tun)
 		p += vnet_buffer (b0)->ip.save_rewrite_length;
-	      clib_memcpy_fast (tr->packet_data, p, sizeof (tr->packet_data));
+	      if (tr->next_header == IP_PROTOCOL_IPTFS)
+		/* Copy from the original "ip header" really the TFS header */
+		clib_memcpy_fast (tr->packet_data, ih0,
+				  sizeof (ipsec_iptfs_header_t));
+	      else
+		clib_memcpy_fast (tr->packet_data, p,
+				  sizeof (tr->packet_data));
 	    }
 	}
+
+      if (VLIB_FRAME_SIZE - n_left_to_next)
+	{
+	  /* These are drops. I guess we'll log them? */
+	  clib_warning ("enqueue %u to next %v (%u) is_tun %u",
+			(VLIB_FRAME_SIZE - n_left_to_next),
+			vlib_get_next_node (vm, node->node_index,
+					    next_index)->name, next_index,
+			is_tun);
+	}
+
       vlib_put_next_frame (vm, node, next_index, n_left_to_next);
     }
   if (is_ip6)

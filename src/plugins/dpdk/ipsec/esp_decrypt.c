@@ -25,11 +25,13 @@
 #include <dpdk/ipsec/ipsec.h>
 #include <dpdk/device/dpdk.h>
 #include <dpdk/device/dpdk_priv.h>
+#include <iptfs/ipsec_iptfs.h>
 
 #define foreach_esp_decrypt_next	       \
 _(DROP, "error-drop")			       \
 _(IP4_INPUT, "ip4-input-no-checksum")	       \
-_(IP6_INPUT, "ip6-input")
+_(IP6_INPUT, "ip6-input")                      \
+_(IPTFS_DECAP, "iptfs-decap-reorder")
 
 #define _(v, s) ESP_DECRYPT_NEXT_##v,
 typedef enum
@@ -72,6 +74,9 @@ typedef struct
 {
   ipsec_crypto_alg_t crypto_alg;
   ipsec_integ_alg_t integ_alg;
+  u16 iv_size;
+  u16 trunc_size;
+  u8 next_header;
   u8 packet_data[64];
 } esp_decrypt_trace_t;
 
@@ -84,11 +89,13 @@ format_esp_decrypt_trace (u8 * s, va_list * args)
   esp_decrypt_trace_t *t = va_arg (*args, esp_decrypt_trace_t *);
   u32 indent = format_get_indent (s);
 
-  s = format (s, "cipher %U auth %U\n",
-	      format_ipsec_crypto_alg, t->crypto_alg,
-	      format_ipsec_integ_alg, t->integ_alg);
-  s = format (s, "%U%U",
-	      format_white_space, indent, format_esp_header, t->packet_data);
+  s =
+    format (s, "cipher %U auth %U iv_size %u trunc_size %u next_header %u\n",
+	    format_ipsec_crypto_alg, t->crypto_alg, format_ipsec_integ_alg,
+	    t->integ_alg, t->iv_size, t->trunc_size, t->next_header);
+  s =
+    format (s, "%U%U", format_white_space, indent, format_esp_header,
+	    t->packet_data);
   return s;
 }
 
@@ -481,13 +488,20 @@ format_esp_decrypt_post_trace (u8 * s, va_list * args)
 	      format_ipsec_integ_alg, t->integ_alg);
 
   ip4_header_t *ih4 = (ip4_header_t *) t->packet_data;
-  if ((ih4->ip_version_and_header_length & 0xF0) == 0x60)
-    s =
-      format (s, "%U%U", format_white_space, indent, format_ip6_header, ih4);
-  else
+  if (t->next_header == IP_PROTOCOL_IP_IN_IP)
     s =
       format (s, "%U%U", format_white_space, indent, format_ip4_header, ih4);
-
+  else if (t->next_header == IP_PROTOCOL_IPV6)
+    s =
+      format (s, "%U%U", format_white_space, indent, format_ip6_header, ih4);
+  else if (t->next_header == IP_PROTOCOL_IPTFS)
+    format (s, "%U%U", format_white_space, indent, format_iptfs_header, ih4);
+  else if (t->next_header == IP_PROTOCOL_IP6_NONXT)
+    format (s, "%UESP pad", format_white_space, indent, format_iptfs_header,
+	    ih4);
+  else
+    format (s, "%UUnknown next header %u", format_white_space, indent,
+	    t->next_header);
   return s;
 }
 
@@ -591,9 +605,16 @@ dpdk_esp_decrypt_post_inline (vlib_main_t * vm,
 		next0 = ESP_DECRYPT_NEXT_IP4_INPUT;
 	      else if (f0->next_header == IP_PROTOCOL_IPV6)
 		next0 = ESP_DECRYPT_NEXT_IP6_INPUT;
+	      else if (f0->next_header == IP_PROTOCOL_IPTFS)
+		{
+		  vnet_buffer (b0)->ipsec.iptfs_esp_seq =
+		    ((u64) sa0->seq_hi << 32) +
+		    clib_net_to_host_u32 (esp0->seq);
+		  next0 = ESP_DECRYPT_NEXT_IPTFS_DECAP;
+		}
 	      else
 		{
-		  clib_warning ("next header: 0x%x", f0->next_header);
+		  clib_warning ("next header: Unknown 0x%x", f0->next_header);
 		  if (is_ip6)
 		    vlib_node_increment_counter (vm,
 						 dpdk_esp6_decrypt_node.index,
@@ -659,8 +680,19 @@ dpdk_esp_decrypt_post_inline (vlib_main_t * vm,
 		vlib_add_trace (vm, node, b0, sizeof (*tr));
 	      tr->crypto_alg = sa0->crypto_alg;
 	      tr->integ_alg = sa0->integ_alg;
-	      ih4 = vlib_buffer_get_current (b0);
-	      clib_memcpy_fast (tr->packet_data, ih4, sizeof (ip6_header_t));
+	      tr->iv_size = iv_size;
+	      tr->trunc_size = trunc_size;
+	      tr->next_header = f0->next_header;
+	      if (tr->next_header == IP_PROTOCOL_IPTFS)
+		clib_memcpy_fast (tr->packet_data,
+				  vlib_buffer_get_current (b0),
+				  sizeof (ipsec_iptfs_header_t));
+	      else
+		{
+		  ih4 = vlib_buffer_get_current (b0);
+		  clib_memcpy_fast (tr->packet_data, ih4,
+				    sizeof (ip6_header_t));
+		}
 	    }
 
 	  vlib_validate_buffer_enqueue_x1 (vm, node, next_index,

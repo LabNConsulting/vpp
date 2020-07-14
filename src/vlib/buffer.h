@@ -75,8 +75,10 @@
 #define foreach_vlib_buffer_flag \
   _( 0, IS_TRACED, 0)					\
   _( 1, NEXT_PRESENT, "next-present")			\
-  _( 2, TOTAL_LENGTH_VALID, 0)				\
-  _( 3, EXT_HDR_VALID, "ext-hdr-valid")
+  _( 2, TOTAL_LENGTH_VALID, "tot-len-valid")		\
+  _( 3, EXT_HDR_VALID, "ext-hdr-valid")			\
+  _( 4, INDIRECT, "mbuf-indirect")                      \
+  _( 5, ATTACHED, "mbuf-attached")
 
 /* NOTE: only buffer generic flags should be defined here, please consider
    using user flags. i.e. src/vnet/buffer.h */
@@ -98,7 +100,7 @@ enum
   /* User defined buffer flags. */
 #define LOG2_VLIB_BUFFER_FLAG_USER(n) (32 - (n))
 #define VLIB_BUFFER_FLAG_USER(n) (1 << LOG2_VLIB_BUFFER_FLAG_USER(n))
-#define VLIB_BUFFER_FLAGS_ALL (0x0f)
+#define VLIB_BUFFER_FLAGS_ALL (0x3f)
 
 /** VLIB buffer representation. */
 typedef union
@@ -119,8 +121,13 @@ typedef union
 	<br> VLIB_BUFFER_IS_TRACED: trace this buffer.
 	<br> VLIB_BUFFER_NEXT_PRESENT: this is a multi-chunk buffer.
 	<br> VLIB_BUFFER_TOTAL_LENGTH_VALID: as it says
-	<br> VLIB_BUFFER_EXT_HDR_VALID: buffer contains valid external buffer manager header,
-	set to avoid adding it to a flow report
+	<br> VLIB_BUFFER_EXT_HDR_VALID: buffer contains valid external buffer
+        manager header, set to avoid adding it to a flow report
+        <br> VLIB_BUFFER_INDIRECT is set to indicate the buffer actually refers
+	to another in it's mbuf (dpdk specific), this flag is used to free
+	the buffer correct.
+        <br> VLIB_BUFFER_ATTACHED is set to indicate the buffer is referred to
+	by another (dpdk specific), this flag is used to free the buffer correctly.
 	<br> VLIB_BUFFER_FLAG_USER(n): user-defined bit N
      */
     u32 flags;
@@ -241,6 +248,48 @@ vlib_buffer_get_current_va (vlib_buffer_t * b)
   return vlib_buffer_get_va (b) + b->current_data;
 }
 
+always_inline void *
+vlib_buffer_get_data_ind (vlib_buffer_t * b)
+{
+  if (b->flags & VLIB_BUFFER_INDIRECT)
+    return (*(vlib_buffer_t **) b->data)->data;
+  return b->data;
+}
+
+
+always_inline uword
+vlib_buffer_get_va_ind (vlib_buffer_t * b)
+{
+  return pointer_to_uword (vlib_buffer_get_data_ind (b));
+}
+
+/** \brief Get pointer to current data to process support indirect
+
+    @param b - (vlib_buffer_t *) pointer to the buffer
+    @return - (void *) (b->data + b->current_data)
+*/
+
+always_inline void *
+vlib_buffer_get_current_ind (vlib_buffer_t * b)
+{
+  /* Check bounds. */
+  ASSERT ((signed) b->current_data >= (signed) -VLIB_BUFFER_PRE_DATA_SIZE);
+  return vlib_buffer_get_data_ind (b) + b->current_data;
+}
+
+/** \brief Get pointer to current data to process support indirect
+
+    @param b - (vlib_buffer_t *) pointer to the buffer
+    @return - (void *) (b->data + b->current_data)
+*/
+
+always_inline uword
+vlib_buffer_get_current_va_ind (vlib_buffer_t * b)
+{
+  /* Check bounds. */
+  return vlib_buffer_get_va_ind (b) + b->current_data;
+}
+
 /** \brief Advance current data pointer by the supplied (signed!) amount
 
     @param b - (vlib_buffer_t *) pointer to the buffer
@@ -323,6 +372,34 @@ always_inline void *
 vlib_buffer_put_uninit (vlib_buffer_t * b, u16 size)
 {
   void *p = vlib_buffer_get_tail (b);
+  /* XXX make sure there's enough space */
+  /* XXX this counts on us not changing the default size */
+  /* ASSERT ((u8 *) p - b->data + size <= VLIB_BUFFER_DEFAULT_DATA_SIZE); */
+
+  b->current_length += size;
+  return p;
+}
+
+/** \brief Get pointer to the end of indirect buffer's data
+ * @param b     pointer to the buffer
+ * @return      pointer to tail of packet's data
+ */
+always_inline u8 *
+vlib_buffer_get_tail_ind (vlib_buffer_t * b)
+{
+  u8 *data = vlib_buffer_get_current_ind (b);
+  return data + b->current_length;
+}
+
+/** \brief Append uninitialized data to indirect buffer
+ * @param b     pointer to the buffer
+ * @param size  number of uninitialized bytes
+ * @return      pointer to beginning of uninitialized data
+ */
+always_inline void *
+vlib_buffer_put_uninit_ind (vlib_buffer_t * b, u16 size)
+{
+  void *p = vlib_buffer_get_tail_ind (b);
   /* XXX make sure there's enough space */
   /* XXX this counts on us not changing the default size */
   /* ASSERT ((u8 *) p - b->data + size <= VLIB_BUFFER_DEFAULT_DATA_SIZE); */
@@ -447,6 +524,26 @@ typedef struct
   vlib_buffer_t buffer_template;
 } vlib_buffer_pool_t;
 
+
+/* Support for indirect buffer data */
+typedef struct
+{
+  void (*buffer_attach) (vlib_buffer_t * b_referencing,
+			 vlib_buffer_t * b_referenced);
+  void (*buffer_detach) (vlib_buffer_t * b_referencing);
+  void (*buffer_free) (vlib_buffer_t * b);
+  void (*buffer_free_seg) (vlib_buffer_t * b);
+  void (*buffer_note_add_v) (vlib_buffer_t * b, char *format, va_list *);
+  void (*buffer_note_clear) (vlib_buffer_t * b);
+  void (*buffer_note_dump) (vlib_buffer_t * b);
+  void (*buffer_note_dump_bulk) (u32 count);
+  u8 *(*buffer_format_note) (u8 * s, vlib_buffer_t * b);
+  int (*buffer_pad_buffer_init) (u16 bufsize, u32 * new_bi);
+  i32 (*buffer_get_mbuf_refcount) (vlib_buffer_t * b);
+} vlib_dpdk_callbacks_t;
+
+u8 *format_vlib_buffer_note (u8 * s, va_list * args);
+
 #define VLIB_BUFFER_MAX_NUMA_NODES 32
 
 typedef struct
@@ -467,6 +564,9 @@ typedef struct
   clib_spinlock_t buffer_known_hash_lockp;
 #endif				/* VLIB_VALIDATE_BUFFER_DEBUG */
   u8 default_buffer_pool_index_for_numa[VLIB_BUFFER_MAX_NUMA_NODES];
+
+  /* dpdk callbacks */
+  vlib_dpdk_callbacks_t dpdk_cb;
 
   /* config */
   u32 buffers_per_numa;

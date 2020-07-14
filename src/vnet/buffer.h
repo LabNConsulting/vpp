@@ -71,9 +71,7 @@
   _(22, AVAIL2, "avail2", 1)                            \
   _(23, AVAIL3, "avail3", 1)                            \
   _(24, AVAIL4, "avail4", 1)                            \
-  _(25, AVAIL5, "avail5", 1)                            \
-  _(26, AVAIL6, "avail6", 1)                            \
-  _(27, AVAIL7, "avail7", 1)
+  _(25, AVAIL5, "avail5", 1)
 
 /*
  * Please allocate the FIRST available bit, redefine
@@ -83,8 +81,7 @@
 
 #define VNET_BUFFER_FLAGS_ALL_AVAIL                                     \
   (VNET_BUFFER_F_AVAIL1 | VNET_BUFFER_F_AVAIL2 | VNET_BUFFER_F_AVAIL3 | \
-   VNET_BUFFER_F_AVAIL4 | VNET_BUFFER_F_AVAIL5 | VNET_BUFFER_F_AVAIL6 | \
-   VNET_BUFFER_F_AVAIL7)
+   VNET_BUFFER_F_AVAIL4 | VNET_BUFFER_F_AVAIL5 )
 
 #define VNET_BUFFER_FLAGS_VLAN_BITS \
   (VNET_BUFFER_F_VLAN_1_DEEP | VNET_BUFFER_F_VLAN_2_DEEP)
@@ -482,6 +479,13 @@ typedef struct
       u64 pad[1];
       u64 pg_replay_timestamp;
     };
+#if 0				// ip-tfs debug
+    // XXX unfortunately this doesn't work b/c it's not cleared on free
+    struct
+    {
+      u64 debug_magic;
+    };
+#endif
     u32 unused[8];
   };
 } vnet_buffer_opaque2_t;

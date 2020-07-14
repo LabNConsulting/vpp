@@ -51,6 +51,10 @@
     vlib buffer access methods.
 */
 
+/* forward */
+always_inline void
+vlib_buffer_dpdk_free_seg (vlib_main_t * vm, vlib_buffer_t * b);
+
 always_inline void
 vlib_buffer_validate (vlib_main_t * vm, vlib_buffer_t * b)
 {
@@ -73,6 +77,19 @@ vlib_buffer_ptr_from_index (uword buffer_mem_start, u32 buffer_index,
 {
   offset += ((uword) buffer_index) << CLIB_LOG2_CACHE_LINE_BYTES;
   return uword_to_pointer (buffer_mem_start + offset, vlib_buffer_t *);
+}
+
+always_inline u8
+vlib_buffer_can_put (vlib_main_t *vm, vlib_buffer_t *b, u16 size)
+{
+#if 0
+  vlib_buffer_pool_t *bp =
+    vec_elt_at_index (vm->buffer_main->buffer_pools, b->buffer_pool_index);
+  u16 data_size = bp->data_size;
+#else
+  u16 data_size = vm->buffer_main->default_data_size;
+#endif
+  return b->current_data + b->current_length + size <= data_size;
 }
 
 /** \brief Translate buffer index into buffer pointer
@@ -397,7 +414,9 @@ vlib_get_next_buffer (vlib_main_t * vm, vlib_buffer_t * b)
 }
 
 uword vlib_buffer_length_in_chain_slow_path (vlib_main_t * vm,
-					     vlib_buffer_t * b_first);
+					     vlib_buffer_t * b_first,
+					     vlib_buffer_t ** b_last,
+                                             u16 *count);
 
 /** \brief Get length in bytes of the buffer chain
 
@@ -416,7 +435,35 @@ vlib_buffer_length_in_chain (vlib_main_t * vm, vlib_buffer_t * b)
   if (PREDICT_TRUE (b->flags & VLIB_BUFFER_TOTAL_LENGTH_VALID))
     return len + b->total_length_not_including_first_buffer;
 
-  return vlib_buffer_length_in_chain_slow_path (vm, b);
+  return vlib_buffer_length_in_chain_slow_path (vm, b, NULL, NULL);
+}
+
+/** \brief Get length in bytes of the buffer chain return last
+
+    @param vm - (vlib_main_t *) vlib main data structure pointer
+    @param b - (void *) buffer pointer
+    @return - (uword) length of buffer chain, and a pointer to the
+              last buffer in the chain
+*/
+always_inline uword
+vlib_buffer_length_in_chain_lb (vlib_main_t * vm, vlib_buffer_t * b,
+				vlib_buffer_t ** lb, u16 * count)
+{
+  uword len = b->current_length;
+
+  if (PREDICT_TRUE ((b->flags & VLIB_BUFFER_NEXT_PRESENT) == 0))
+    {
+      if (lb)
+        *lb = b;
+      if (count)
+        *count = 1;
+      return len;
+    }
+
+  if (!lb && !count && PREDICT_TRUE (b->flags & VLIB_BUFFER_TOTAL_LENGTH_VALID))
+    return len + b->total_length_not_including_first_buffer;
+
+  return vlib_buffer_length_in_chain_slow_path (vm, b, lb, count);
 }
 
 /** \brief Get length in bytes of the buffer index buffer chain
@@ -792,6 +839,16 @@ vlib_buffer_pool_put (vlib_main_t * vm, u8 buffer_pool_index,
   clib_spinlock_unlock (&bp->lock);
 }
 
+always_inline i32 vlib_buffer_get_mbuf_refcount (vlib_main_t *vm,
+                                                 vlib_buffer_t *b)
+{
+  vlib_buffer_main_t *bm = vm->buffer_main;
+
+  ASSERT (bm->dpdk_cb.buffer_get_mbuf_refcount);
+
+  return bm->dpdk_cb.buffer_get_mbuf_refcount (b);
+}
+
 static_always_inline void
 vlib_buffer_free_inline (vlib_main_t * vm, u32 * buffers, u32 n_buffers,
 			 int maybe_next)
@@ -805,7 +862,7 @@ vlib_buffer_free_inline (vlib_main_t * vm, u32 * buffers, u32 n_buffers,
   vlib_buffer_t bpi_mask = {.buffer_pool_index = ~0 };
   vlib_buffer_t bpi_vec = {.buffer_pool_index = ~0 };
   vlib_buffer_t flags_refs_mask = {
-    .flags = VLIB_BUFFER_NEXT_PRESENT,
+    .flags = (VLIB_BUFFER_NEXT_PRESENT | VLIB_BUFFER_INDIRECT | VLIB_BUFFER_ATTACHED),
     .ref_count = ~1
   };
 #endif
@@ -846,7 +903,7 @@ vlib_buffer_free_inline (vlib_main_t * vm, u32 * buffers, u32 n_buffers,
       sum |= b[1]->flags;
       sum |= b[2]->flags;
       sum |= b[3]->flags;
-      sum &= VLIB_BUFFER_NEXT_PRESENT;
+      sum &= (VLIB_BUFFER_NEXT_PRESENT | VLIB_BUFFER_INDIRECT | VLIB_BUFFER_ATTACHED);
       sum += b[0]->ref_count - 1;
       sum += b[1]->ref_count - 1;
       sum += b[2]->ref_count - 1;
@@ -893,6 +950,45 @@ vlib_buffer_free_inline (vlib_main_t * vm, u32 * buffers, u32 n_buffers,
       b[0] = vlib_get_buffer (vm, bi);
       flags = b[0]->flags;
       next = b[0]->next_buffer;
+
+#if 0
+      i32 mbref = vlib_buffer_get_mbuf_refcount (vm, b[0]);
+#endif
+
+      /* must test EACH segment! */
+      if (PREDICT_FALSE (flags & (VLIB_BUFFER_INDIRECT|VLIB_BUFFER_ATTACHED)))
+        {
+          /* Doesn't deal with VPP use of multi-referenced buffers */
+          ASSERT (clib_atomic_load_relax_n (&b[0]->ref_count) == 1);
+#if 0
+          {
+            u8 *format_vlib_buffer_no_chain (u8 * s, va_list * args);
+            clib_warning ("%s: Freeing indirect buffer bi 0x%x: ref_count "
+                          "%d mb->refcount %d:\n BUFFER: %U",
+                          __FUNCTION__, bi, b[0]->ref_count,
+                          mbref, format_vlib_buffer_no_chain, b[0]);
+          }
+#endif
+          vlib_buffer_dpdk_free_seg (vm, b[0]);
+          if (flags & VLIB_BUFFER_NEXT_PRESENT)
+            {
+              bi = next;
+              goto next_in_chain;
+            }
+          buffers++;
+          n_buffers--;
+          continue;
+	}
+
+#if 0
+      if (mbref != 1) {
+        u8 *format_vlib_buffer_no_chain (u8 * s, va_list * args);
+        clib_warning ("%s: Freeing buffer with mbref != 1 bi 0x%x: ref_count "
+                      "%d mb->refcount %d:\n BUFFER: %U",
+                      __FUNCTION__, bi, b[0]->ref_count, mbref,
+                      format_vlib_buffer_no_chain, b[0]);
+      }
+#endif
 
       if (PREDICT_FALSE (buffer_pool_index != b[0]->buffer_pool_index))
 	{
@@ -1576,10 +1672,140 @@ vlib_buffer_chain_linearize (vlib_main_t * vm, vlib_buffer_t * b)
   return n_buffers;
 }
 
+always_inline void
+vlib_buffer_attach (vlib_main_t * vm,
+		    vlib_buffer_t * b_referencing,
+		    vlib_buffer_t * b_referenced)
+{
+  vlib_buffer_main_t *bm = vm->buffer_main;
+
+  ASSERT (bm->dpdk_cb.buffer_attach);
+
+  bm->dpdk_cb.buffer_attach (b_referencing, b_referenced);
+}
+
+always_inline void
+vlib_buffer_detach (vlib_main_t * vm, vlib_buffer_t * b_referencing)
+{
+  vlib_buffer_main_t *bm = vm->buffer_main;
+
+  ASSERT (bm->dpdk_cb.buffer_detach);
+
+  bm->dpdk_cb.buffer_detach (b_referencing);
+}
+
+always_inline void
+vlib_buffer_dpdk_free (vlib_main_t * vm, vlib_buffer_t * b)
+{
+  vlib_buffer_main_t *bm = vm->buffer_main;
+  vlib_buffer_t *next;
+
+  ASSERT (bm->dpdk_cb.buffer_free);
+
+  /*
+   * buffers that are chained at the vlib_buffer level might not
+   * be chained at the rte_mbuf level, so we must follow the chain
+   * here.
+   */
+  do
+    {
+      next = vlib_get_next_buffer (vm, b);	/* read it before free */
+      bm->dpdk_cb.buffer_free_seg (b);
+    }
+  while ((b = next));
+}
+
+always_inline void
+vlib_buffer_dpdk_free_seg (vlib_main_t * vm, vlib_buffer_t * b)
+{
+  vlib_buffer_main_t *bm = vm->buffer_main;
+
+  ASSERT (bm->dpdk_cb.buffer_free_seg);
+
+  bm->dpdk_cb.buffer_free_seg (b);
+}
+
+always_inline int
+vlib_buffer_pad_buffer_init(
+    u16		bufsize,
+    u32		*new_vlib_bi)
+{
+    vlib_main_t		*vm = vlib_get_main();
+    vlib_buffer_main_t	*bm = vm->buffer_main;
+
+    ASSERT (bm->dpdk_cb.buffer_pad_buffer_init);
+
+    return bm->dpdk_cb.buffer_pad_buffer_init(bufsize, new_vlib_bi);
+}
+
+always_inline void
+vlib_buffer_note_add(
+    vlib_buffer_t	*b,
+    char		*fmt,
+    ...)
+{
+    vlib_main_t		*vm = vlib_get_main();
+    vlib_buffer_main_t	*bm = vm->buffer_main;
+    va_list		va;
+
+    if (bm->dpdk_cb.buffer_note_add_v) {
+	va_start (va, fmt);
+	bm->dpdk_cb.buffer_note_add_v (b, fmt, &va);
+	va_end (va);
+    }
+}
+
+always_inline void
+vlib_buffer_note_clear(
+    vlib_buffer_t	*b)
+{
+    vlib_main_t		*vm = vlib_get_main();
+    vlib_buffer_main_t	*bm = vm->buffer_main;
+
+    if (bm->dpdk_cb.buffer_note_clear)
+	bm->dpdk_cb.buffer_note_clear (b);
+}
+
+always_inline void
+vlib_buffer_note_dump(
+    vlib_buffer_t	*b)
+{
+    vlib_main_t		*vm = vlib_get_main();
+    vlib_buffer_main_t	*bm = vm->buffer_main;
+
+    if (bm->dpdk_cb.buffer_note_dump)
+	bm->dpdk_cb.buffer_note_dump (b);
+}
+
+/* non-inline version of vlib_buffer_note_dump() for debugging */
+extern void
+vlib_buffer_note_dump_e(
+    vlib_buffer_t	*b);
+
+always_inline void
+vlib_buffer_note_dump_bulk(
+    u32			count)
+{
+    vlib_main_t		*vm = vlib_get_main();
+    vlib_buffer_main_t	*bm = vm->buffer_main;
+
+    if (bm->dpdk_cb.buffer_note_dump_bulk)
+	bm->dpdk_cb.buffer_note_dump_bulk (count);
+}
+
+always_inline void
+vlib_buffer_register_dpdk_callbacks(
+    vlib_main_t			*vm,
+    vlib_dpdk_callbacks_t	*cb)
+{
+    vlib_buffer_main_t *bm = vm->buffer_main;
+    bm->dpdk_cb = *cb;
+}
+
 #endif /* included_vlib_buffer_funcs_h */
 
 /*
- * fd.io coding-style-patch-verification: ON
+ * fd.io coding-style-patch-verification: O
  *
  * Local Variables:
  * eval: (c-set-style "gnu")

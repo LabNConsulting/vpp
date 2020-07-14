@@ -111,6 +111,19 @@ format_vlib_buffer_data (u8 * s, va_list * args)
   return s;
 }
 
+u8 *
+format_vlib_buffer_note (u8 * s, va_list * args)
+{
+  vlib_buffer_t *b = va_arg (*args, vlib_buffer_t *);
+
+  vlib_main_t *vm = vlib_get_main ();
+  vlib_buffer_main_t *bm = vm->buffer_main;
+
+  if (bm->dpdk_cb.buffer_format_note)
+    s = bm->dpdk_cb.buffer_format_note (s, b);
+  return s;
+}
+
 /* Enable/on => 1; disable/off => 0. */
 uword
 unformat_vlib_enable_disable (unformat_input_t * input, va_list * args)

@@ -76,18 +76,25 @@ buffer_gauges_update_used_fn (stat_segment_directory_entry_t * e, u32 index);
 
 uword
 vlib_buffer_length_in_chain_slow_path (vlib_main_t * vm,
-				       vlib_buffer_t * b_first)
+				       vlib_buffer_t * b_first,
+				       vlib_buffer_t ** b_last, u16 * countp)
 {
   vlib_buffer_t *b = b_first;
   uword l_first = b_first->current_length;
   uword l = 0;
+  u16 count = 1;
   while (b->flags & VLIB_BUFFER_NEXT_PRESENT)
     {
       b = vlib_get_buffer (vm, b->next_buffer);
       l += b->current_length;
+      count++;
     }
   b_first->total_length_not_including_first_buffer = l;
   b_first->flags |= VLIB_BUFFER_TOTAL_LENGTH_VALID;
+  if (b_last)
+    *b_last = b;
+  if (countp)
+    *countp = count;
   return l + l_first;
 }
 
@@ -367,8 +374,11 @@ vlib_buffer_validate_alloc_free (vlib_main_t * vm,
 
       if (known != expected_state)
 	{
-	  clib_panic ("%s %U buffer 0x%x", is_free ? "freeing" : "allocating",
-		      format_vlib_buffer_known_state, known, bi);
+	  vlib_buffer_t *buffer = vlib_get_buffer (vm, bi);
+	  clib_panic ("%s %U buffer 0x%x flags 0x%x",
+		      is_free ? "freeing" : "allocating",
+		      format_vlib_buffer_known_state, known, bi,
+		      buffer->flags);
 	}
 
       clib_spinlock_lock (&bm->buffer_known_hash_lockp);
@@ -569,6 +579,7 @@ vlib_buffer_pool_create (vlib_main_t * vm, char *name, u32 data_size,
   bp->index = bp - bm->buffer_pools;
   bp->buffer_template.buffer_pool_index = bp->index;
   bp->buffer_template.ref_count = 1;
+  bp->buffer_template.next_buffer = 0xDEADBEAF;	/* XXX: chopps make uninit fail */
   bp->physmem_map_index = physmem_map_index;
   bp->name = format (0, "%s%c", name, 0);
   bp->data_size = data_size;
@@ -1002,6 +1013,13 @@ vlib_buffer_alloc_may_fail (vlib_main_t * vm, u32 n_buffers)
   return n_buffers;
 }
 #endif
+
+/* callable from gdb */
+void
+vlib_buffer_note_dump_e(vlib_buffer_t *b)
+{
+    vlib_buffer_note_dump(b);
+}
 
 /** @endcond */
 /*

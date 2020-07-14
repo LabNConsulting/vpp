@@ -94,55 +94,46 @@ dpdk_tx_trace_buffer (dpdk_main_t * dm, vlib_node_runtime_t * node,
   vlib_main_t *vm = vlib_get_main ();
   dpdk_tx_trace_t *t0;
   struct rte_mbuf *mb;
+  vlib_buffer_t *cb;
+  u32 i, extra = 0;
+
+  for (cb = buffer; (cb->flags & VLIB_BUFFER_NEXT_PRESENT);
+       cb = vlib_get_buffer (vm, cb->next_buffer))
+    extra++;
 
   mb = rte_mbuf_from_vlib_buffer (buffer);
 
-  t0 = vlib_add_trace (vm, node, buffer, sizeof (t0[0]));
+  t0 =
+    vlib_add_trace (vm, node, buffer,
+		    sizeof (t0[0]) + sizeof (t0->chains[0]) * extra);
   t0->queue_index = queue_id;
   t0->device_index = xd->device_index;
   t0->buffer_index = vlib_get_buffer_index (vm, buffer);
   clib_memcpy_fast (&t0->mb, mb, sizeof (t0->mb));
   clib_memcpy_fast (&t0->buffer, buffer,
 		    sizeof (buffer[0]) - sizeof (buffer->pre_data));
-  clib_memcpy_fast (t0->buffer.pre_data, buffer->data + buffer->current_data,
-		    sizeof (t0->buffer.pre_data));
-  clib_memcpy_fast (&t0->data, mb->buf_addr + mb->data_off,
-		    sizeof (t0->data));
-}
+  clib_memcpy_fast (t0->buffer.pre_data,
+		    vlib_buffer_get_current_ind (buffer),
+		    clib_min (sizeof (t0->buffer.pre_data),
+			      t0->buffer.current_length));
+  /* Copy the last 16 bytes. */
+  if (t0->buffer.current_length > sizeof (t0->buffer.pre_data))
+    clib_memcpy_fast (t0->buffer.pre_data + VLIB_BUFFER_PRE_DATA_SIZE - 16,
+		      vlib_buffer_get_current_ind (buffer) +
+		      buffer->current_length - 16, 16);
 
-static_always_inline void
-dpdk_validate_rte_mbuf (vlib_main_t * vm, vlib_buffer_t * b,
-			int maybe_multiseg)
-{
-  struct rte_mbuf *mb, *first_mb, *last_mb;
-  last_mb = first_mb = mb = rte_mbuf_from_vlib_buffer (b);
-
-  /* buffer is coming from non-dpdk source so we need to init
-     rte_mbuf header */
-  if (PREDICT_FALSE ((b->flags & VLIB_BUFFER_EXT_HDR_VALID) == 0))
-    rte_pktmbuf_reset (mb);
-
-  first_mb->nb_segs = 1;
-  mb->data_len = b->current_length;
-  mb->pkt_len = maybe_multiseg ? vlib_buffer_length_in_chain (vm, b) :
-    b->current_length;
-  mb->data_off = VLIB_BUFFER_PRE_DATA_SIZE + b->current_data;
-
-  while (maybe_multiseg && (b->flags & VLIB_BUFFER_NEXT_PRESENT))
+  /* now copy the chained buffers and data */
+  for (i = 0; i < extra; i++)
     {
-      b = vlib_get_buffer (vm, b->next_buffer);
-      mb = rte_mbuf_from_vlib_buffer (b);
-      if (PREDICT_FALSE ((b->flags & VLIB_BUFFER_EXT_HDR_VALID) == 0))
-	rte_pktmbuf_reset (mb);
-      last_mb->next = mb;
-      last_mb = mb;
-      mb->data_len = b->current_length;
-      mb->pkt_len = b->current_length;
-      mb->data_off = VLIB_BUFFER_PRE_DATA_SIZE + b->current_data;
-      first_mb->nb_segs++;
-      if (PREDICT_FALSE (b->ref_count > 1))
-	mb->pool =
-	  dpdk_no_cache_mempool_by_buffer_pool_index[b->buffer_pool_index];
+      t0->chains[i].buffer_index = buffer->next_buffer;
+      buffer = vlib_get_buffer (vm, buffer->next_buffer);
+      mb = rte_mbuf_from_vlib_buffer (buffer);
+      clib_memcpy_fast (&t0->chains[i].mb, mb, sizeof (t0->mb));
+      clib_memcpy_fast (&t0->chains[i].buffer, buffer,
+			sizeof (buffer[0]) - sizeof (buffer->pre_data));
+      clib_memcpy_fast (t0->chains[i].buffer.pre_data,
+			mb->buf_addr + mb->data_off,
+			clib_min (VLIB_BUFFER_PRE_DATA_SIZE, mb->data_len));
     }
 }
 

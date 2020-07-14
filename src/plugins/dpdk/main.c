@@ -24,6 +24,12 @@
 #include <vnet/plugin/plugin.h>
 #include <dpdk/device/dpdk.h>
 #include <vpp/app/version.h>
+#include <dpdk/buffer.h>
+
+
+#if DEBUG_BUFFER_NOTES
+struct dpdk_buffer_debug_main bdm;
+#endif /* DEBUG_BUFFER_NOTES */
 
 /*
  * Called by the dpdk driver's rte_delay_us() function.

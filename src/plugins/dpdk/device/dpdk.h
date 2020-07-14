@@ -353,12 +353,19 @@ extern dpdk_main_t dpdk_main;
 typedef struct
 {
   u32 buffer_index;
+  struct rte_mbuf mb;
+  vlib_buffer_t buffer;
+} dpdk_tx_trace_chain_t;
+
+typedef struct
+{
+  u32 buffer_index;
   u16 device_index;
   u8 queue_index;
   struct rte_mbuf mb;
   /* Copy of VLIB buffer; packet data stored in pre_data. */
   vlib_buffer_t buffer;
-  u8 data[256];			/* First 256 data bytes, used for hexdump */
+  dpdk_tx_trace_chain_t chains[0];
 } dpdk_tx_trace_t;
 
 typedef struct
@@ -445,6 +452,9 @@ format_function_t format_dpdk_rss_hf_name;
 format_function_t format_dpdk_rx_offload_caps;
 format_function_t format_dpdk_tx_offload_caps;
 vnet_flow_dev_ops_function_t dpdk_flow_ops_fn;
+
+format_function_t format_chained_indirect_buffer;
+format_function_t format_chained_rte_mbuf;
 
 clib_error_t *unformat_rss_fn (unformat_input_t * input, uword * rss_fn);
 

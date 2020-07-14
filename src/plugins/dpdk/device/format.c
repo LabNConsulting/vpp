@@ -23,6 +23,7 @@
 #include <vnet/ethernet/ethernet.h>
 #include <vnet/ethernet/sfp.h>
 #include <dpdk/device/dpdk.h>
+#include <dpdk/buffer.h>	/* gpz: for rte_mbuf_from_vlib_buffer() */
 
 #include <dpdk/device/dpdk_priv.h>
 #include <vppinfra/error.h>
@@ -738,6 +739,21 @@ format_dpdk_device (u8 * s, va_list * args)
 }
 
 u8 *
+format_dump_hex (u8 * s, u32 indent, char *p, int len)
+{
+  int i;
+  for (i = 0; i < len; ++i)
+    {
+      if (i % 16 == 0)
+	s = format (s, "\n%U", format_white_space, indent);
+      s = format (s, "%02x ", p[i]);
+    }
+  if (i % 16 == 0)
+    s = format (s, "\n");
+  return s;
+}
+
+u8 *
 format_dpdk_tx_trace (u8 * s, va_list * va)
 {
   CLIB_UNUSED (vlib_main_t * vm) = va_arg (*va, vlib_main_t *);
@@ -748,21 +764,88 @@ format_dpdk_tx_trace (u8 * s, va_list * va)
   dpdk_device_t *xd = vec_elt_at_index (dm->devices, t->device_index);
   u32 indent = format_get_indent (s);
   vnet_sw_interface_t *sw = vnet_get_sw_interface (vnm, xd->sw_if_index);
+  vlib_buffer_t *b = &t->buffer;
+  u8 next_present = (b->flags & VLIB_BUFFER_NEXT_PRESENT) != 0;
 
   s = format (s, "%U tx queue %d",
 	      format_vnet_sw_interface_name, vnm, sw, t->queue_index);
+
+  /* Cannot walk the buffer chain on this copy */
+  b->flags &= ~VLIB_BUFFER_NEXT_PRESENT;
 
   s = format (s, "\n%Ubuffer 0x%x: %U",
 	      format_white_space, indent,
 	      t->buffer_index, format_vnet_buffer, &t->buffer);
 
-  s = format (s, "\n%U%U",
-	      format_white_space, indent,
-	      format_dpdk_rte_mbuf, &t->mb, &t->data);
+  if (next_present)
+    b->flags |= VLIB_BUFFER_NEXT_PRESENT;
 
-  s = format (s, "\n%U%U", format_white_space, indent,
+  s = format (s, "\n%U FOO: %U",
+	      format_white_space, indent,
+	      format_dpdk_rte_mbuf, &t->mb, b->pre_data);
+
+  /* buffer pre_data has been used to store the initial packet content */
+  s = format (s, "\n%U ETHER: %U", format_white_space, indent,
 	      format_ethernet_header_with_length, t->buffer.pre_data,
 	      sizeof (t->buffer.pre_data));
+
+  struct rte_mbuf *mb = &t->mb;
+  s = format (s, "\n%UPKT MBUF: buf_addr %p, nb_segs %d, pkt_len %d"
+	      "\n%Ubuf_len %d, data_len %d, ol_flags 0x%x, data_off-128 %d, phys_addr 0x%x",
+	      format_white_space, indent,
+	      mb->buf_addr, mb->nb_segs, mb->pkt_len,
+	      format_white_space, indent + 1,
+	      mb->buf_len, mb->data_len, mb->ol_flags,
+	      mb->data_off - VLIB_BUFFER_PRE_DATA_SIZE, mb->buf_physaddr);
+
+  s = format (s, "\n%UPacket Dump%s", format_white_space, indent,
+	      b->current_length > sizeof (b->pre_data) ? " (truncated)" : "");
+
+  if (b->current_length > sizeof (b->pre_data))
+    s =
+      format (s, "\n%U%U", format_white_space, indent + 1,
+	      format_hexdump_trunc, b->pre_data, (uint)sizeof (b->pre_data),
+	      (uint)b->current_length);
+  else
+    s = format (s, "\n%U%U", format_white_space, indent + 1, format_hexdump,
+		b->pre_data, b->current_length);
+
+  for (u32 i = 0; next_present; i++)
+    {
+      b = &t->chains[i].buffer;
+      next_present = (b->flags & VLIB_BUFFER_NEXT_PRESENT) != 0;
+
+      /* Cannot walk the buffer chain on this copy */
+      b->flags &= ~VLIB_BUFFER_NEXT_PRESENT;
+
+      s = format (s, "\n%UCHAIN %u: buffer 0x%x: %U",
+		  format_white_space, indent, i + 1,
+		  t->chains[i].buffer_index, format_vnet_buffer, b);
+
+      if (next_present)
+	b->flags |= VLIB_BUFFER_NEXT_PRESENT;
+
+      mb = &t->chains[i].mb;
+      s = format (s, "\n%UCHAIN %u: MBUF buf_addr %p, nb_segs %d, pkt_len %d"
+		  "\n%Ubuf_len %d, data_len %d, ol_flags 0x%x, data_off-128 %d, phys_addr 0x%x",
+		  format_white_space, indent, i + 1,
+		  mb->buf_addr, mb->nb_segs, mb->pkt_len,
+		  format_white_space, indent + 1,
+		  mb->buf_len, mb->data_len, mb->ol_flags,
+		  mb->data_off - VLIB_BUFFER_PRE_DATA_SIZE, mb->buf_physaddr);
+
+      s = format (s, "\n%UBuffer Dump%s", format_white_space, indent,
+		  b->current_length >
+		  sizeof (b->pre_data) ? " (truncated)" : "");
+      if (b->current_length > sizeof (b->pre_data))
+	s = format (s, "\n%U%U", format_white_space, indent + 1,
+		    format_hexdump_trunc, b->pre_data, (uint)sizeof (b->pre_data),
+		    (uint)b->current_length);
+      else
+	s =
+	  format (s, "\n%U%U", format_white_space, indent + 1, format_hexdump,
+		  b->pre_data, b->current_length);
+    }
 
   return s;
 }
@@ -936,6 +1019,148 @@ unformat_rss_fn (unformat_input_t * input, uword * rss_fn)
 	}
     }
   return 0;
+}
+
+
+/*
+ * !! gpz debug, layering violations galore
+ */
+u8 *
+format_chained_indirect_buffer (u8 * s, va_list * args)
+{
+  vlib_buffer_t *b = va_arg (*args, vlib_buffer_t *);
+  u32 indent = format_get_indent (s);
+
+  int count = 0;
+
+  if (!b)
+    return format (s, "BUF: nil\n");
+
+  vlib_main_t *vm = vlib_get_main ();
+
+  s = format (s, "\n");
+
+  for (count = 0; b; count++)
+    {
+      /* s = */
+      /*   format (s, */
+      /*        "%UMBUF CHAIN %2d: %p, clen %u totlen - clen %u, ext_hdr_valid %c indirect %c\n", */
+      /*        format_white_space, indent, count, b, b->current_length, */
+      /*        b->total_length_not_including_first_buffer, */
+      /*        ((b->flags & VLIB_BUFFER_EXT_HDR_VALID) ? 'y' : 'n'), */
+      /*        ((b->flags & VLIB_BUFFER_INDIRECT) ? 'y' : 'n')); */
+
+      s =
+	format (s, "%UCHAIN %2d: buffer 0x%x %U\n", format_white_space,
+		indent, count, vlib_get_buffer_index (vm, b),
+		format_vnet_buffer, b);
+
+      if (b->flags & VLIB_BUFFER_INDIRECT)
+	{
+	  struct rte_mbuf *mb_referencing, *mb_referenced;
+	  vlib_buffer_t *b_referenced;
+
+	  mb_referencing = rte_mbuf_from_vlib_buffer (b);
+	  clib_memcpy (&b_referenced, b->data, sizeof (vlib_buffer_t *));
+	  mb_referenced = rte_mbuf_from_vlib_buffer (b_referenced);
+
+	  s = format (s, "%UIND MBUF data buf_addr %p, buf_physaddr %lx\n",
+		      format_white_space, indent + 1,
+		      mb_referencing->buf_addr, mb_referencing->buf_physaddr);
+
+	  s = format (s, "%UReferenced buffer 0x%x: %U\n",
+		      format_white_space, indent + 1,
+		      vlib_get_buffer_index (vm, b_referenced),
+		      format_vnet_buffer, b_referenced);
+
+	  s =
+	    format (s,
+		    "%UReferenced MBUF data buf_addr %p, buf_physaddr %lx\n",
+		    format_white_space, indent + 1, mb_referenced->buf_addr,
+		    mb_referenced->buf_physaddr);
+
+	  s = format (s, "%UData Dump:\n", format_white_space, indent + 1);
+
+	  /*
+	   * since this mbif is flagged indirect, buf_addr points at
+	   * the referenced mbuf data area
+	   */
+	  char *p = mb_referencing->buf_addr + mb_referencing->data_off;
+
+	  int i, max;
+	  if (mb_referencing->data_len < 64)
+	    max = mb_referencing->data_len;
+	  else
+	    max = 64;
+	  s = format (s, "  ");
+	  for (i = 0; i < max; ++i)
+	    {
+	      if (i % 16 == 0)
+		s = format (s, "\n%U", format_white_space, indent + 1);
+	      s = format (s, "%02x ", p[i]);
+	    }
+	  if (i % 16 == 0)
+	    s = format (s, "\n");
+	}
+
+      if (b->flags & VLIB_BUFFER_NEXT_PRESENT)
+	{
+	  b = vlib_get_buffer (vm, b->next_buffer);
+	}
+      else
+	{
+	  b = NULL;
+	}
+    }
+  return s;
+}
+
+/* gpz */
+u8 *
+format_chained_rte_mbuf (u8 * s, va_list * args)
+{
+  struct rte_mbuf *m = va_arg (*args, struct rte_mbuf *);
+  int count = 0;
+
+  if (!m)
+    return format (s, "MBUF: nil\n");
+
+  while (m)
+    {
+      ++count;
+      uint16_t refcnt;
+      if (RTE_MBUF_HAS_EXTBUF (m))
+	{
+	  refcnt = rte_mbuf_refcnt_read (m);
+	}
+      else
+	{
+	  refcnt = rte_mbuf_refcnt_read (rte_mbuf_from_indirect (m));
+	}
+      s =
+	format (s,
+		"MBUF %2d: %p, next %p, buf_addr %p, data_off %d, data_len %u, ol_flags 0x%lx, refcnt %u, port %u, nb_segs %u, pkt_len %u\n",
+		count, m, m->next, m->buf_addr, m->data_off, m->data_len,
+		m->ol_flags, refcnt, m->port, m->nb_segs, m->pkt_len);
+
+      char *p = m->buf_addr + m->data_off;
+
+      int i, max;
+      if (m->data_len < 64)
+	max = m->data_len;
+      else
+	max = 64;
+      s = format (s, "  ");
+      for (i = 0; i < max; ++i)
+	{
+	  s = format (s, "%02x ", p[i]);
+	  if (i && (i % 16 == 0))
+	    s = format (s, "\n");
+	}
+      s = format (s, "\n");
+      m = m->next;
+    }
+  return s;
 }
 
 

@@ -716,7 +716,7 @@ def gen_json_unified_header(parser, logger, j, io, name):
         print("extern vapi_msg_id_t %s;" % m.get_msg_id_name())
     print("")
     print("#define DEFINE_VAPI_MSG_IDS_%s\\" %
-          f.replace(".", "_").replace("/", "_").replace("-", "_").upper())
+          f.replace(".", "_").replace("/", "_").replace("-", "_").replace("+", "_").upper())
     print("\\\n".join([
         "  vapi_msg_id_t %s;" % m.get_msg_id_name()
         for m in parser.messages_by_json[j].values()

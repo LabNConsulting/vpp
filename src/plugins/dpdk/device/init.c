@@ -1182,6 +1182,8 @@ dpdk_config (vlib_main_t * vm, unformat_input_t * input)
   u8 *socket_mem = 0;
   u8 *huge_dir_path = 0;
   u32 vendor, device, domain, bus, func;
+  u8 *tracepat = 0;
+  u8 *tracedir = 0;
 
   huge_dir_path =
     format (0, "%s/hugepages%c", vlib_unix_get_runtime_dir (), 0);
@@ -1278,6 +1280,23 @@ dpdk_config (vlib_main_t * vm, unformat_input_t * input)
 	{
 	  no_vmbus = 1;
 	  tmp = format (0, "--no-vmbus%c", 0);
+	  vec_add1 (conf->eal_init_args, tmp);
+	}
+
+      /*
+       * this more-specific format must come before the less-specific
+       * one below because "trace %s" matches "trace-dir" for some
+       * poorly-documented reason.
+       */
+      else if (unformat (input, "trace-dir %s", &tracedir))
+	{
+	  tmp = format (0, "--trace-dir=%s%c", (char *)tracedir, 0);
+	  vec_add1 (conf->eal_init_args, tmp);
+	}
+
+      else if (unformat (input, "trace %s", &tracepat))
+	{
+	  tmp = format (0, "--trace=%s%c", (char *)tracepat, 0);
 	  vec_add1 (conf->eal_init_args, tmp);
 	}
 

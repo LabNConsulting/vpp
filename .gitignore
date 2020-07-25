@@ -104,6 +104,8 @@ compile_commands.json
 # vppctl command list
 /src/scripts/vppctl-cmd-list
 
+/compile_commands.json
+
 # No core files
 **/core
 

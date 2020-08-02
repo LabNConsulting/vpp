@@ -193,7 +193,7 @@ class VppIpsecSA(VppObject):
                  proto,
                  tun_src=None, tun_dst=None,
                  flags=None, salt=0, udp_src=None,
-                 udp_dst=None):
+                 udp_dst=None, tfs_type=None):
         e = VppEnum.vl_api_ipsec_sad_flags_t
         self.test = test
         self.id = id
@@ -204,6 +204,10 @@ class VppIpsecSA(VppObject):
         self.crypto_key = crypto_key
         self.proto = proto
         self.salt = salt
+        if tfs_type:
+            self.tfs_type = tfs_type
+        else:
+            self.tfs_type = VppEnum.vl_api_ipsec_sad_tfs_type_t.IPSEC_API_SAD_TFS_TYPE_NONE
 
         self.tun_src = tun_src
         self.tun_dst = tun_dst
@@ -239,7 +243,8 @@ class VppIpsecSA(VppObject):
             'tunnel_src': (self.tun_src if self.tun_src else []),
             'tunnel_dst': (self.tun_dst if self.tun_dst else []),
             'flags': self.flags,
-            'salt': self.salt
+            'salt': self.salt,
+            'tfs_type': self.tfs_type
         }
         # don't explicitly send the defaults, let papi fill them in
         if self.udp_src:
@@ -270,7 +275,8 @@ class VppIpsecSA(VppObject):
                 'tunnel_src': (self.tun_src if self.tun_src else []),
                 'tunnel_dst': (self.tun_dst if self.tun_dst else []),
                 'flags': self.flags,
-                'salt': self.salt
+                'salt': self.salt,
+                'tfs_type': self.tfs_type
             })
 
     def object_id(self):

@@ -11,7 +11,8 @@ class VppIpsecTunInterface(VppTunnelInterface):
                  integ_alg, local_integ_key, remote_integ_key, salt=0,
                  udp_encap=False,
                  is_ip6=False,
-                 dst=None):
+                 dst=None,
+                 tfs_type=None, tfs_config=None):
         super(VppIpsecTunInterface, self).__init__(test, parent_if)
         self.local_spi = local_spi
         self.remote_spi = remote_spi
@@ -31,6 +32,8 @@ class VppIpsecTunInterface(VppTunnelInterface):
         if dst:
             self.remote_ip = dst
         self.udp_encap = udp_encap
+        self.tfs_type = tfs_type
+        self.tfs_config = tfs_config
 
     def add_vpp_config(self):
         r = self.test.vapi.ipsec_tunnel_if_add_del(
@@ -39,7 +42,9 @@ class VppIpsecTunInterface(VppTunnelInterface):
             self.crypto_alg, self.local_crypto_key, self.remote_crypto_key,
             self.integ_alg, self.local_integ_key, self.remote_integ_key,
             salt=self.salt,
-            udp_encap=self.udp_encap)
+            udp_encap=self.udp_encap,
+            tfs_type=self.tfs_type,
+            tfs_config=self.tfs_config)
         self.set_sw_if_index(r.sw_if_index)
         self.generate_remote_hosts()
         self.test.registry.register(self, self.test.logger)
@@ -50,7 +55,7 @@ class VppIpsecTunInterface(VppTunnelInterface):
             self.remote_spi, self.local_spi,
             self.crypto_alg, self.local_crypto_key, self.remote_crypto_key,
             self.integ_alg, self.local_integ_key, self.remote_integ_key,
-            is_add=0)
+            is_add=0, tfs_type=self.tfs_type, tfs_config=self.tfs_config)
 
     def object_id(self):
         return "ipsec-tun-if-%d" % self._sw_if_index

@@ -1021,7 +1021,8 @@ class VppPapiProvider(object):
                                 remote_crypto_key, integ_alg, local_integ_key,
                                 remote_integ_key, is_add=1, esn=0, salt=0,
                                 anti_replay=1, renumber=0,
-                                udp_encap=0, show_instance=0xffffffff):
+                                udp_encap=0, show_instance=0xffffffff,
+                                tfs_type=0, tfs_config=b""):
         return self.api(
             self.papi.ipsec_tunnel_if_add_del,
             {
@@ -1045,7 +1046,10 @@ class VppPapiProvider(object):
                 'renumber': renumber,
                 'show_instance': show_instance,
                 'udp_encap': udp_encap,
-                'salt': salt
+                'salt': salt,
+                'tfs_type': tfs_type,
+                'tfs_config_len': len(tfs_config) if tfs_config else 0,
+                'tfs_config': tfs_config,
             })
 
     def ipsec_select_backend(self, protocol, index):

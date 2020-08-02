@@ -406,7 +406,9 @@ class VppTestCase(unittest.TestCase):
 
         cls.vpp_cmdline = [cls.vpp_bin, "unix",
                            "{", "nodaemon", debug_cli, "full-coredump",
-                           coredump_size, "runtime-dir", cls.tempdir, "}",
+                           coredump_size, "runtime-dir", cls.tempdir,
+                           "cli-listen ", cls.cli_sock, " ",
+                           "}",
                            "api-trace", "{", "on", "}", "api-segment", "{",
                            "prefix", cls.shm_prefix, "}", "cpu", "{",
                            "main-core", str(cpu_core_number),
@@ -536,6 +538,7 @@ class VppTestCase(unittest.TestCase):
             prefix='vpp-unittest-%s-' % cls.__name__)
         cls.stats_sock = "%s/stats.sock" % cls.tempdir
         cls.api_sock = "%s/api.sock" % cls.tempdir
+        cls.cli_sock = "%s/cli.sock" % cls.tempdir
         cls.file_handler = FileHandler("%s/log.txt" % cls.tempdir)
         cls.file_handler.setFormatter(
             Formatter(fmt='%(asctime)s,%(msecs)03d %(message)s',

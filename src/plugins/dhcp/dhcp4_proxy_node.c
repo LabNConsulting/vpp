@@ -937,7 +937,7 @@ dhcp4_proxy_set_command_fn (vlib_main_t * vm,
       switch (rv)
 	{
 	case 0:
-	  return 0;
+	  break;
 
 	case VNET_API_ERROR_INVALID_DST_ADDRESS:
 	  return clib_error_return (0, "Invalid server address");
@@ -952,6 +952,7 @@ dhcp4_proxy_set_command_fn (vlib_main_t * vm,
 	default:
 	  return clib_error_return (0, "BUG: rv %d", rv);
 	}
+      return 0;
     }
   else
     return clib_error_return (0, "parse error`%U'",

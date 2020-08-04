@@ -95,6 +95,7 @@
 #endif /* __KERNEL__ */
 
 #include <vppinfra/bitops.h> /* foreach_set_bit */
+#include <vppinfra/elf_clib.h>
 #include <vppinfra/format.h>
 #include <vppinfra/error.h>
 
@@ -1024,6 +1025,18 @@ done:
   vec_free (status);
   vec_free (ptr);
   return s;
+}
+
+u8 *
+format_backtrace (u8 * s, va_list * args)
+{
+    /* Address of callers: outer first, inner last. */
+    uword callers[15];
+    uword n_callers = clib_backtrace (callers, ARRAY_LEN (callers), 0);
+    int i;
+    for (i = 0; i < n_callers; i++)
+        s = format (s, "#%-2d 0x%016lx %U\n", i, callers[i], format_clib_elf_symbol_with_address, callers[i]);
+    return s;
 }
 
 #endif /* __KERNEL__ */

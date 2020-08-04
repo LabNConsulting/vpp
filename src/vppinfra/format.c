@@ -258,6 +258,9 @@ do_percent (u8 ** _s, const u8 * fmt, va_list * va)
 	    s = format (s, "**** CLIB unknown format `%%%c' ****", c);
 	    goto done;
 	  }
+        case 'B':
+          s = format_backtrace(s, NULL);
+          break;
 
 	case 'c':
 	  vec_add1 (s, va_arg (*va, int));

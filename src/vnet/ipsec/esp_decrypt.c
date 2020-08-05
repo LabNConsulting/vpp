@@ -31,8 +31,8 @@
 _(DROP, "error-drop")                           \
 _(IP4_INPUT, "ip4-input-no-checksum")           \
 _(IP6_INPUT, "ip6-input")                       \
-_(IPTFS_DECAP, "iptfs-decap-reorder")           \
 _(L2_INPUT, "l2-input")                         \
+_(IPTFS_DECAP, "iptfs-decap-reorder")           \
 _(HANDOFF, "handoff")				\
 _(PENDING, "pending")
 
@@ -48,7 +48,8 @@ typedef enum
 _(DROP, "error-drop")                                  \
 _(IP4_INPUT, "ip4-input-no-checksum")                  \
 _(IP6_INPUT, "ip6-input")                              \
-_(L2_INPUT, "l2-input")
+_(L2_INPUT, "l2-input")                                \
+_(IPTFS_DECAP, "iptfs-decap-reorder")
 
 #define _(v, s) ESP_DECRYPT_POST_NEXT_##v,
 typedef enum
@@ -918,6 +919,7 @@ esp_decrypt_post_crypto (vlib_main_t * vm, vlib_node_runtime_t * node,
           next[0] = ESP_DECRYPT_NEXT_IPTFS_DECAP;
           b->current_data = pd->current_data + adv;
           b->current_length = pd->current_length - adv;
+	  esp_remove_tail (vm, b, lb, tail);
         }
       else
 	{
@@ -1475,6 +1477,7 @@ VLIB_REGISTER_NODE (esp4_decrypt_node) = {
     [ESP_DECRYPT_NEXT_IP4_INPUT] = "ip4-input-no-checksum",
     [ESP_DECRYPT_NEXT_IP6_INPUT] = "ip6-input",
     [ESP_DECRYPT_NEXT_L2_INPUT] = "l2-input",
+    [ESP_DECRYPT_NEXT_IPTFS_DECAP] = "iptfs-decap-reorder",
     [ESP_DECRYPT_NEXT_HANDOFF] = "esp4-decrypt-handoff",
     [ESP_DECRYPT_NEXT_PENDING] = "esp-decrypt-pending"
   },
@@ -1507,6 +1510,7 @@ VLIB_REGISTER_NODE (esp6_decrypt_node) = {
     [ESP_DECRYPT_NEXT_IP4_INPUT] = "ip4-input-no-checksum",
     [ESP_DECRYPT_NEXT_IP6_INPUT] = "ip6-input",
     [ESP_DECRYPT_NEXT_L2_INPUT] = "l2-input",
+    [ESP_DECRYPT_NEXT_IPTFS_DECAP] = "iptfs-decap-reorder",
     [ESP_DECRYPT_NEXT_HANDOFF]=  "esp6-decrypt-handoff",
     [ESP_DECRYPT_NEXT_PENDING] = "esp-decrypt-pending"
   },
@@ -1537,6 +1541,7 @@ VLIB_REGISTER_NODE (esp4_decrypt_tun_node) = {
     [ESP_DECRYPT_NEXT_IP4_INPUT] = "ip4-input-no-checksum",
     [ESP_DECRYPT_NEXT_IP6_INPUT] = "ip6-input",
     [ESP_DECRYPT_NEXT_L2_INPUT] = "l2-input",
+    [ESP_DECRYPT_NEXT_IPTFS_DECAP] = "iptfs-decap-reorder",
     [ESP_DECRYPT_NEXT_HANDOFF] = "esp4-decrypt-tun-handoff",
     [ESP_DECRYPT_NEXT_PENDING] = "esp-decrypt-pending"
   },
@@ -1567,6 +1572,7 @@ VLIB_REGISTER_NODE (esp6_decrypt_tun_node) = {
     [ESP_DECRYPT_NEXT_IP4_INPUT] = "ip4-input-no-checksum",
     [ESP_DECRYPT_NEXT_IP6_INPUT] = "ip6-input",
     [ESP_DECRYPT_NEXT_L2_INPUT] = "l2-input",
+    [ESP_DECRYPT_NEXT_IPTFS_DECAP] = "iptfs-decap-reorder",
     [ESP_DECRYPT_NEXT_HANDOFF]=  "esp6-decrypt-tun-handoff",
     [ESP_DECRYPT_NEXT_PENDING] = "esp-decrypt-pending"
   },

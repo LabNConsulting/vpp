@@ -67,6 +67,7 @@ ipsec_check_esp_support (ipsec_sa_t * sa)
   return (0);
 }
 
+/* XXX chopps this is never called anymore, used to be called from ipsec_if.c */
 clib_error_t *
 ipsec_add_del_sa_sess_cb (ipsec_main_t * im, u32 sa_index, u8 is_add)
 {
@@ -345,6 +346,11 @@ ipsec_select_esp_backend (ipsec_main_t * im, u32 backend_idx)
       if ((b->enable_disable_cb) (1) != 0)
 	return -1;
     }
+
+  /* XXX things changed above so our backend update probably needs to as well */
+  if (ipsec_main.tfs_backend_update_cb)
+    (ipsec_main.tfs_backend_update_cb) ();
+
   return 0;
 }
 
@@ -396,10 +402,6 @@ crypto_engine_backend_register_post_node (vlib_main_t * vm)
     vnet_crypto_register_post_node (vm, "esp4-decrypt-tun-post");
   dit->esp6_tun_post_next =
     vnet_crypto_register_post_node (vm, "esp6-decrypt-tun-post");
-
-  /* XXX things changed above so our backend update probably needs to as well */
-  if (im->tfs_backend_update_cb)
-    (*im->tfs_backend_update_cb) (im->vlib_main);
 }
 
 static clib_error_t *

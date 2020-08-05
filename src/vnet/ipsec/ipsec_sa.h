@@ -69,7 +69,7 @@ typedef enum
   _(1, IPTFS_CC,   "iptfs-cc")    \
   _(2, IPTFS_NOCC, "iptfs-nocc")
 
-typedef enum
+typedef enum __attribute__ ((__packed__))
 {
 #define _(v,f, str) IPSEC_SA_TFS_TYPE_##f = v,
   foreach_ipsec_sa_tfs_type
@@ -78,7 +78,7 @@ typedef enum
 } ipsec_sa_tfs_type_t;
 
 
-typedef enum
+typedef enum __attribute__ ((__packed__))
 {
   IPSEC_PROTOCOL_AH = 0,
   IPSEC_PROTOCOL_ESP = 1
@@ -163,7 +163,6 @@ typedef struct
     u64 crypto_op_data;
   };
 
-  u8 tfs_type;
 
   /* data accessed by dataplane code should be above this comment */
     CLIB_CACHE_LINE_ALIGN_MARK (cacheline1);
@@ -179,6 +178,7 @@ typedef struct
   u32 id;
   u32 stat_index;
   ipsec_protocol_t protocol;
+  ipsec_sa_tfs_type_t tfs_type;
 
   ipsec_crypto_alg_t crypto_alg;
   ipsec_key_t crypto_key;

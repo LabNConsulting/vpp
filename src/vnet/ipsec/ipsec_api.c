@@ -664,10 +664,10 @@ vl_api_ipsec_tunnel_if_add_del_t_handler (vl_api_ipsec_tunnel_if_add_del_t *
       /* create an ip-ip tunnel, then the two SA, then bind them */
       if (tfs_type)
 	{
-	  /* XXX chopps create an ipsec interface here. */
 	  tfs_config =
 	    ipsec_tfs_config_decode (mp->tfs_config, mp->tfs_config_len);
-	  rv = VNET_API_ERROR_UNIMPLEMENTED;
+          rv = ipsec_itf_create(~0, TUNNEL_MODE_P2P, &sw_if_index);
+          flags |= IPSEC_SA_FLAG_IS_TUNNEL;
 	}
       else
 	rv = ipip_add_tunnel (transport,
@@ -688,6 +688,7 @@ vl_api_ipsec_tunnel_if_add_del_t_handler (vl_api_ipsec_tunnel_if_add_del_t *
 				  mp->integ_alg,
 				  &integ_key,
 				  (flags | IPSEC_SA_FLAG_IS_INBOUND),
+				  tfs_type, tfs_config,
 				  ntohl (mp->tx_table_id),
 				  mp->salt, &remote_ip, &local_ip, NULL,
 				  IPSEC_UDP_PORT_NONE, IPSEC_UDP_PORT_NONE);
@@ -703,6 +704,7 @@ vl_api_ipsec_tunnel_if_add_del_t_handler (vl_api_ipsec_tunnel_if_add_del_t *
 				  mp->integ_alg,
 				  &integ_key,
 				  flags,
+				  tfs_type, tfs_config,
 				  ntohl (mp->tx_table_id),
 				  mp->salt, &local_ip, &remote_ip, NULL,
 				  IPSEC_UDP_PORT_NONE, IPSEC_UDP_PORT_NONE);

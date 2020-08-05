@@ -24,6 +24,7 @@
 
 #include <vnet/ipsec/ipsec.h>
 #include <vnet/ipsec/ipsec_tun.h>
+#include <vnet/ipsec/ipsec_itf.h>
 
 static clib_error_t *
 set_interface_spd_command_fn (vlib_main_t * vm,
@@ -918,29 +919,30 @@ create_ipsec_tunnel_command_fn (vlib_main_t * vm,
       goto done;
     }
 
-  if (tfs_type)
-    {
-      // XXX chopps impelment
-      // a.tfs_type = tfs_type;
-      // a.tfs_config = tfs_config;
-      // rv = ipsec_add_del_tunnel_if (&a);
-      rv = VNET_API_ERROR_UNIMPLEMENTED;
-    }
-  else if (is_add)
+  if (is_add)
     {
       // remote = input, local = output
       u32 sw_if_index;
 
       /* create an ip-ip tunnel, then the two SA, then bind them */
-      rv =
-	ipip_add_tunnel (ipv6_set ? IPIP_TRANSPORT_IP6 : IPIP_TRANSPORT_IP4,
-			 instance, &local_ip, &remote_ip, fib_index,
-			 TUNNEL_ENCAP_DECAP_FLAG_NONE, IP_DSCP_CS0,
-			 TUNNEL_MODE_P2P, &sw_if_index);
+      if (tfs_type)
+	{
+	  rv = ipsec_itf_create (instance, TUNNEL_MODE_P2P, &sw_if_index);
+	  flags |= IPSEC_SA_FLAG_IS_TUNNEL;
+	  if (ipv6_set)
+	    flags |= IPSEC_SA_FLAG_IS_TUNNEL_V6;
+	}
+      else
+	rv =
+	  ipip_add_tunnel (ipv6_set ? IPIP_TRANSPORT_IP6 : IPIP_TRANSPORT_IP4,
+			   instance, &local_ip, &remote_ip, fib_index,
+			   TUNNEL_ENCAP_DECAP_FLAG_NONE, IP_DSCP_CS0,
+			   TUNNEL_MODE_P2P, &sw_if_index);
       rv |=
 	ipsec_sa_add_and_lock (ipsec_tun_mk_local_sa_id (sw_if_index),
 			       local_spi, IPSEC_PROTOCOL_ESP, crypto_alg,
-			       &lck, integ_alg, &lik, flags, table_id,
+			       &lck, integ_alg, &lik, flags,
+			       tfs_type, tfs_config, table_id,
 			       clib_host_to_net_u32 (salt), &local_ip,
 			       &remote_ip, NULL, IPSEC_UDP_PORT_NONE,
 			       IPSEC_UDP_PORT_NONE);
@@ -948,7 +950,8 @@ create_ipsec_tunnel_command_fn (vlib_main_t * vm,
 	ipsec_sa_add_and_lock (ipsec_tun_mk_remote_sa_id (sw_if_index),
 			       remote_spi, IPSEC_PROTOCOL_ESP, crypto_alg,
 			       &rck, integ_alg, &rik,
-			       (flags | IPSEC_SA_FLAG_IS_INBOUND), table_id,
+			       (flags | IPSEC_SA_FLAG_IS_INBOUND),
+			       tfs_type, tfs_config, table_id,
 			       clib_host_to_net_u32 (salt), &remote_ip,
 			       &local_ip, NULL, IPSEC_UDP_PORT_NONE,
 			       IPSEC_UDP_PORT_NONE);

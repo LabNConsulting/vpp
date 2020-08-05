@@ -403,6 +403,7 @@ ipsec_sa_del (ipsec_sa_t * sa)
 u32
 ipsec_sa_get_sw_if_index (vnet_main_t * vnm, u32 sa_index)
 {
+#if 0
   ipsec_tunnel_if_t *t;
   ipsec_main_t *im = &ipsec_main;
   ipsec_sa_t *sa;
@@ -452,6 +453,9 @@ ipsec_sa_get_sw_if_index (vnet_main_t * vnm, u32 sa_index)
     }
   t = pool_elt_at_index (im->tunnel_interfaces, *p);
   return t->sw_if_index;
+#else
+  return ~0;
+#endif
 }
 
 void

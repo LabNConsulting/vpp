@@ -36,11 +36,11 @@ typedef clib_error_t *(*tfs_add_del_sa_cb_t) (u32 sa_index, void *tfs_config,
 					      u8 is_add);
 typedef clib_error_t *(*tfs_check_support_cb_t) (ipsec_sa_t * sa,
 						 void *tfs_config);
-typedef clib_error_t *(*tfs_backend_update_cb_t) (vlib_main_t * vm);
+typedef clib_error_t *(*tfs_backend_update_cb_t) ();
 typedef uword (*unformat_tfs_config_cb_t) (unformat_input_t *, va_list *);
 typedef u8 *(*format_tfs_config_cb_t) (u8 *, va_list *);
 typedef u8 *(*format_tfs_data_cb_t) (u8 *, va_list *);
-typedef void (*tfs_tunnel_feature_set_cb_t) (ipsec_tunnel_if_t *, u8);
+typedef void (*tfs_tunnel_feature_set_cb_t) (void *, u8);
 typedef void (*tfs_encrypt_debug_cb_t) (vlib_main_t * vm, ipsec_sa_t * sa,
 					void *esphdr, vlib_buffer_t * srcb,
 					vlib_buffer_t * dstb);

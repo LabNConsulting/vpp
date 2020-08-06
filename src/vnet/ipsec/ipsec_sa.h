@@ -108,7 +108,8 @@ typedef struct ipsec_key_t_
   _ (16, UDP_ENCAP, "udp-encap")                          \
   _ (32, IS_PROTECT, "Protect")                           \
   _ (64, IS_INBOUND, "inbound")                           \
-  _ (128, IS_AEAD, "aead")                                \
+  _ (128, IS_AEAD, "aead")
+
 
 typedef enum ipsec_sad_flags_t_
 {
@@ -136,7 +137,13 @@ typedef struct
   u32 seq_hi;
   u32 last_seq;
   u32 last_seq_hi;
-  u64 replay_window;
+  union {
+    u64 replay_window;			/* running state for ipsec */
+    struct {
+      u32 window_size;			/* configurable param for macsec */
+      u32 unused;
+    } replay_macsec;
+  };
   dpo_id_t dpo;
 
   vnet_crypto_key_index_t crypto_key_index;
@@ -175,7 +182,12 @@ typedef struct
   udp_header_t udp_hdr;
 
   fib_node_t node;
+
   u32 id;
+#define IPSEC_SA_ID_TUN_INPUT	0x80000000
+#define IPSEC_SA_ID_TUN_OUTPUT	0xc0000000
+#define IPSEC_SA_ID_MACSEC	0x20000000
+
   u32 stat_index;
   ipsec_protocol_t protocol;
   ipsec_sa_tfs_type_t tfs_type;
@@ -250,6 +262,9 @@ foreach_ipsec_sa_flags
 #define ipsec_sa_is_IPTFS(sa) ((sa)->tfs_type != 0)
 #define ipsec_sa_index_is_IPTFS(im, sa_index) \
   ((sa_index) != ~0 && pool_elt_at_index ((im)->sad, (sa_index))->tfs_type != 0)
+
+#define ipsec_sa_is_MACSEC(sa) ((sa)->id & IPSEC_SA_ID_MACSEC)
+
 /**
  * @brief
  * SA packet & bytes counters
@@ -309,6 +324,16 @@ extern uword unformat_ipsec_key (unformat_input_t * input, va_list * args);
 extern uword unformat_ipsec_sa_tfs (unformat_input_t * input, va_list * args);
 extern uword unformat_ipsec_sa_tfs_type (unformat_input_t * input,
 					 va_list * args);
+extern int ipsec_sa_macsec_add(
+    u32			macsec_id,
+    ipsec_crypto_alg_t	crypto_alg,
+    const ipsec_key_t	*ck,
+    u8			is_inbound,
+    u8			replay_protect,
+    u32			replay_window,
+    u32			*sa_out_index);
+
+extern void ipsec_sa_macsec_del(u32 sa_index);
 /*
  * Anti Replay definitions
  */
@@ -514,7 +539,6 @@ ipsec_sa_anti_replay_advance (ipsec_sa_t * sa, u32 seq)
     }
 }
 
-
 /*
  * Makes choice for thread_id should be assigned.
  *  if input ~0, gets random worker_id based on unix_time_now_nsec
@@ -523,7 +547,61 @@ always_inline u32
 ipsec_sa_assign_thread (u32 thread_id)
 {
   return ((thread_id) ? thread_id
-	  : (unix_time_now_nsec () % vlib_num_workers ()) + 1);
+                      : (unix_time_now_nsec () % vlib_num_workers ()) + 1);
+}
+
+always_inline u32
+ipsec_sa_macsec_next_pn(ipsec_sa_t *sa)
+{
+    u32 pn;
+
+    pn = __atomic_add_fetch(&sa->seq, 1, __ATOMIC_SEQ_CST);
+
+    return pn;
+}
+
+/*
+ * packet number should be in host byte order
+ */
+always_inline int
+ipsec_sa_macsec_anti_replay_check (ipsec_sa_t * sa, u32 pn)
+{
+    if ((sa->flags & IPSEC_SA_FLAG_USE_ANTI_REPLAY) == 0)
+	return 0;
+
+    /*
+     * For now, we will tolerate packet number wrap because the mini-macsec
+     * implementation does not roll over to new SAs automatically.
+     */
+
+    i32		pn_diff = (i32)((pn)-(sa->last_seq));
+
+    /*
+     * Accept up to 2E16 ahead (this seems excessive and worth revisiting)
+     * but problems should be caught in decryption/authentication
+     */
+    if (PREDICT_TRUE(pn_diff > 0))
+	return 0;
+
+    if (PREDICT_TRUE(((i64)sa->replay_macsec.window_size + (i64)pn_diff) > 0))
+	return 0;
+
+    return 1;
+}
+
+/*
+ * packet number should be in host byte order
+ */
+always_inline void
+ipsec_sa_macsec_anti_replay_advance (ipsec_sa_t * sa, u32 pn)
+{
+    if ((sa->flags & IPSEC_SA_FLAG_USE_ANTI_REPLAY) == 0)
+	return;
+
+    i32		pn_diff = (i32)((pn)-(sa->last_seq));
+
+    if (PREDICT_TRUE(pn_diff > 0))
+	sa->last_seq = pn;
 }
 
 #endif /* __IPSEC_SPD_SA_H__ */

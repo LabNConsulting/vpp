@@ -329,8 +329,12 @@ format_ipsec_sa (u8 * s, va_list * args)
   s = format (s, "\n   thread-indices [encrypt:%d decrypt:%d]",
 	      sa->encrypt_thread_index, sa->decrypt_thread_index);
   s = format (s, "\n   seq %u seq-hi %u", sa->seq, sa->seq_hi);
-  s = format (s, "\n   last-seq %u last-seq-hi %u window %U",
-	      sa->last_seq, sa->last_seq_hi,
+  s = format (s, "\n   last-seq %u last-seq-hi %u ",
+	      sa->last_seq, sa->last_seq_hi);
+  if (ipsec_sa_is_MACSEC(sa))
+    s = format (s, "window %u", sa->replay_macsec.window_size);
+  else
+    s = format (s, "window %U",
 	      format_ipsec_replay_window, sa->replay_window);
   s = format (s, "\n   crypto alg %U",
 	      format_ipsec_crypto_alg, sa->crypto_alg);

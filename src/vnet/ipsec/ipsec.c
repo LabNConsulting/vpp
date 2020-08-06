@@ -232,6 +232,7 @@ ipsec_register_esp_backend (vlib_main_t * vm, ipsec_main_t * im,
 			    const char *esp6_encrypt_node_tun_name,
 			    const char *esp6_decrypt_node_name,
 			    const char *esp6_decrypt_tun_node_name,
+			    const char *macsec_encrypt_node_name,
 			    check_support_cb_t esp_check_support_cb,
 			    add_del_sa_sess_cb_t esp_add_del_sa_sess_cb,
 			    enable_disable_cb_t enable_disable_cb)
@@ -240,6 +241,14 @@ ipsec_register_esp_backend (vlib_main_t * vm, ipsec_main_t * im,
 
   pool_get (im->esp_backends, b);
   b->name = format (0, "%s%c", name, 0);
+
+  if (macsec_encrypt_node_name) {
+      vlib_node_t *node;
+      node = vlib_get_node_by_name(vm, (u8 *)macsec_encrypt_node_name);
+      im->macsec_encrypt_node_index = node->index;
+  } else {
+      im->macsec_encrypt_node_index = ~0;
+  }
 
   ipsec_add_node (vm, esp4_encrypt_node_name, "ipsec4-output-feature",
 		  &b->esp4_encrypt_node_index, &b->esp4_encrypt_next_index);
@@ -351,6 +360,9 @@ ipsec_select_esp_backend (ipsec_main_t * im, u32 backend_idx)
   if (ipsec_main.tfs_backend_update_cb)
     (ipsec_main.tfs_backend_update_cb) ();
 
+  if (im->etfs3_backend_update_cb)
+    (*im->etfs3_backend_update_cb) (im->vlib_main);
+
   return 0;
 }
 
@@ -451,6 +463,7 @@ ipsec_init (vlib_main_t * vm)
 				    "esp6-encrypt-tun",
 				    "esp6-decrypt",
 				    "esp6-decrypt-tun",
+                                    NULL,
 				    ipsec_check_esp_support,
 				    NULL, crypto_dispatch_enable_disable);
   im->esp_default_backend = idx;

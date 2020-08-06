@@ -380,6 +380,21 @@ list(APPEND VNET_HEADERS
 list(APPEND VNET_API_FILES lldp/lldp.api)
 
 ##############################################################################
+# Layer 2 / MACSEC
+##############################################################################
+list(APPEND VNET_SOURCES
+  macsec/macsec.c
+  macsec/macsec_format.c
+  macsec/macsec_sa.c
+)
+
+list(APPEND VNET_HEADERS
+  macsec/macsec.h
+  macsec/macsec_format.h
+  macsec/macsec_sa.h
+)
+
+##############################################################################
 # Layer 2/3 "classify"
 ##############################################################################
 list(APPEND VNET_SOURCES

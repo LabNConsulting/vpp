@@ -193,6 +193,8 @@ ipsec_sa_add_and_lock (u32 id,
   if (p)
     return VNET_API_ERROR_ENTRY_ALREADY_EXISTS;
 
+  ASSERT(!(id & IPSEC_SA_ID_MACSEC));
+
   pool_get_aligned_zero (im->sad, sa, CLIB_CACHE_LINE_BYTES);
 
   fib_node_init (&sa->node, FIB_NODE_TYPE_IPSEC_SA);
@@ -369,6 +371,76 @@ ipsec_sa_add_and_lock (u32 id,
   return (0);
 }
 
+/*
+ * Cryptodev infrastructure is owned by ipsec, so we allocate an ipsec SA
+ * and use it for macsec as well.
+ */
+int
+ipsec_sa_macsec_add(
+    u32			macsec_id,
+    ipsec_crypto_alg_t	crypto_alg,
+    const ipsec_key_t	*ck,
+    u8			is_inbound,		/* not sure if needed */
+    u8			replay_protect,		/* !0 => enable replay check */
+    u32			replay_window,
+    u32			*sa_out_index)
+{
+  vlib_main_t	*vm = vlib_get_main ();
+  ipsec_main_t	*im = &ipsec_main;
+  u32		id = IPSEC_SA_ID_MACSEC | macsec_id;
+  ipsec_sa_t	*sa;
+  uword		*p;
+  u32		sa_index;
+
+  p = hash_get (im->sa_index_by_sa_id, id);
+  if (p)
+    return VNET_API_ERROR_ENTRY_ALREADY_EXISTS;
+
+  /*
+   * macsec allows only a few crypto algorithms
+   */
+  switch (crypto_alg) {
+  case IPSEC_CRYPTO_ALG_AES_GCM_128:
+  case IPSEC_CRYPTO_ALG_AES_GCM_256:
+    break;
+  default:
+    return VNET_API_ERROR_INVALID_ALGORITHM;
+  }
+
+  pool_get_aligned_zero (im->sad, sa, CLIB_CACHE_LINE_BYTES);
+  sa_index = sa - im->sad;
+
+  vlib_validate_combined_counter (&ipsec_sa_counters, sa_index);
+  vlib_zero_combined_counter (&ipsec_sa_counters, sa_index);
+
+  if (replay_protect) {
+    sa->flags |= IPSEC_SA_FLAG_USE_ANTI_REPLAY;
+    sa->replay_macsec.window_size = replay_window;
+  }
+  if (is_inbound)
+    sa->flags |= IPSEC_SA_FLAG_IS_INBOUND;
+
+  sa->id = id;
+  ipsec_sa_set_crypto_alg (sa, crypto_alg);
+  clib_memcpy (&sa->crypto_key, ck, sizeof (sa->crypto_key));
+
+  sa->crypto_key_index = vnet_crypto_key_add (vm,
+					      im->crypto_algs[crypto_alg].alg,
+					      (u8 *) ck->data, ck->len);
+  if (~0 == sa->crypto_key_index)
+    {
+      pool_put (im->sad, sa);
+      return VNET_API_ERROR_KEY_LENGTH;
+    }
+
+  hash_set (im->sa_index_by_sa_id, sa->id, sa_index);
+
+  if (sa_out_index)
+    *sa_out_index = sa_index;
+
+  return 0;
+}
+
 static void
 ipsec_sa_del (ipsec_sa_t * sa)
 {
@@ -399,6 +471,18 @@ ipsec_sa_del (ipsec_sa_t * sa)
     vnet_crypto_key_del (vm, sa->integ_key_index);
   pool_put (im->sad, sa);
 }
+
+void
+ipsec_sa_macsec_del(u32 sa_index)
+{
+  ipsec_main_t	*im = &ipsec_main;
+  ipsec_sa_t	*sa;
+
+  sa = im->sad + sa_index;
+  ASSERT(ipsec_sa_is_MACSEC(sa));
+  ipsec_sa_del(sa);
+}
+
 
 u32
 ipsec_sa_get_sw_if_index (vnet_main_t * vnm, u32 sa_index)

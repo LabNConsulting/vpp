@@ -133,6 +133,8 @@ add_vpp_plugin(dpdk
   ipsec/esp_encrypt.c
   ipsec/ipsec.c
   cryptodev/cryptodev.c
+  ipsec/macsec_decrypt.c
+  ipsec/macsec_encrypt.c
 
   MULTIARCH_SOURCES
   buffer.c
@@ -141,6 +143,8 @@ add_vpp_plugin(dpdk
   ipsec/crypto_node.c
   ipsec/esp_decrypt.c
   ipsec/esp_encrypt.c
+  ipsec/macsec_decrypt.c
+  ipsec/macsec_encrypt.c
 
   INSTALL_HEADERS
   device/dpdk.h

@@ -258,7 +258,10 @@ crypto_set_aead_xform (struct rte_crypto_sym_xform *xform,
     crypto_op_get_priv_offset () + offsetof (dpdk_op_priv_t, cb);
   xform->aead.iv.length = 12;
   xform->aead.digest_length = c->trunc_size;
-  xform->aead.aad_length = ipsec_sa_is_set_USE_ESN (sa) ? 12 : 8;
+  if (ipsec_sa_is_MACSEC(sa))
+    xform->aead.aad_length = 28;
+  else
+    xform->aead.aad_length = ipsec_sa_is_set_USE_ESN (sa) ? 12 : 8;
   xform->next = NULL;
 
   if (is_outbound)
@@ -1076,6 +1079,7 @@ dpdk_ipsec_main_init (vlib_main_t * vm)
 					"dpdk-esp6-encrypt-tun",
 					"dpdk-esp6-decrypt",
 					"dpdk-esp6-decrypt",
+                                        "dpdk-macsec-encrypt",
 					dpdk_ipsec_check_support,
 					add_del_sa_session,
 					dpdk_ipsec_enable_disable);

@@ -132,40 +132,6 @@ format_esp_encrypt_trace (u8 * s, va_list * args)
   return s;
 }
 
-#define CHOPPS_DBG 0
-
-static inline vlib_buffer_t *
-dpdk_get_dst_buffer (vlib_main_t * vm, u32 bi, struct rte_mbuf **mb,
-		     vlib_buffer_t * src)
-{
-  vlib_buffer_t *b = vlib_get_buffer (vm, bi);
-  VLIB_BUFFER_TRACE_TRAJECTORY_INIT (b);
-
-  // Too noisy.
-  // iptfs_pkt_debug ("%s: buffer %u", __FUNCTION__, bi);
-
-  // Is this right??
-  // b->flags |= VNET_BUFFER_F_LOCALLY_ORIGINATED;
-
-  vnet_buffer (b)->ipsec.sad_index = vnet_buffer (src)->ipsec.sad_index;
-  vnet_buffer (b)->sw_if_index[VLIB_RX] =
-    vnet_buffer (src)->sw_if_index[VLIB_RX];
-  vnet_buffer (b)->sw_if_index[VLIB_TX] =
-    vnet_buffer (src)->sw_if_index[VLIB_TX];
-
-  /* Start with no data */
-  b->flags |=
-    VLIB_BUFFER_TOTAL_LENGTH_VALID | (src->flags & VLIB_BUFFER_IS_TRACED);
-  b->current_data = 0;
-  b->current_length = 0;
-
-  *mb = rte_mbuf_from_vlib_buffer (b);
-  rte_pktmbuf_reset (*mb);
-  b->flags |= VLIB_BUFFER_EXT_HDR_VALID;
-
-  return b;
-}
-
 always_inline uword
 dpdk_esp_encrypt_inline (vlib_main_t * vm,
 			 vlib_node_runtime_t * node,
@@ -399,7 +365,7 @@ dpdk_esp_encrypt_inline (vlib_main_t * vm,
 		  n_left_to_next -= 1;
 		  goto trace;
 		}
-	      dst_b0 = dpdk_get_dst_buffer (vm, dst_bi0, &dst_mb0, b0);
+	      dst_b0 = dpdk_ipsec_get_dst_buffer (vm, dst_bi0, &dst_mb0, b0);
 	      /* This is the buffer that will get sent on to the next node */
 	      priv->bi = dst_bi0;
 	    }

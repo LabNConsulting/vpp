@@ -41,7 +41,8 @@
   _(INTERFACE_OUTPUT, "interface-output")	\
   _(MIDCHAIN, "adj-midchain-tx")                 \
   _(DECRYPT4_POST, "dpdk-esp4-decrypt-post")     \
-  _(DECRYPT6_POST, "dpdk-esp6-decrypt-post")
+  _(DECRYPT6_POST, "dpdk-esp6-decrypt-post")	\
+  _(DECRYPT_MACSEC_POST, "dpdk-macsec-decrypt-post")
 
 typedef enum
 {
@@ -55,8 +56,13 @@ typedef enum
 
 typedef struct
 {
-  u32 salt;
-  u32 iv[2];
+  union {
+    struct {
+      u32 salt;
+      u32 iv[2];
+    };
+    u8 raw[12];
+  };
   u32 cnt;
 } dpdk_gcm_cnt_blk;
 
@@ -67,8 +73,15 @@ typedef struct
   u8 encrypt;
     CLIB_ALIGN_MARK (mark0, 16);
   dpdk_gcm_cnt_blk cb;
-  u8 aad[16];
-  u8 icv[32];			/* XXX last 16B in next cache line */
+  union {
+      struct {
+	  u8 aad[16];
+	  u8 icv[32];			/* XXX last 16B in next cache line */
+      };
+      struct {
+	  u8 aad[32];
+      } macsec;
+  };
 } dpdk_op_priv_t;
 
 typedef struct
@@ -448,6 +461,36 @@ dpdk_buffer_length_in_chain_fixup (vlib_main_t * vm, vlib_buffer_t * b0,
   return len;
 }
 
+static inline vlib_buffer_t *
+dpdk_ipsec_get_dst_buffer (vlib_main_t * vm, u32 bi, struct rte_mbuf **mb,
+		     vlib_buffer_t * src)
+{
+  vlib_buffer_t *b = vlib_get_buffer (vm, bi);
+  VLIB_BUFFER_TRACE_TRAJECTORY_INIT (b);
+
+  // Too noisy.
+  // iptfs_pkt_debug ("%s: buffer %u", __FUNCTION__, bi);
+
+  // Is this right??
+  // b->flags |= VNET_BUFFER_F_LOCALLY_ORIGINATED;
+
+  vnet_buffer (b)->ipsec.sad_index = vnet_buffer (src)->ipsec.sad_index;
+  vnet_buffer (b)->sw_if_index[VLIB_RX] =
+    vnet_buffer (src)->sw_if_index[VLIB_RX];
+  vnet_buffer (b)->sw_if_index[VLIB_TX] =
+    vnet_buffer (src)->sw_if_index[VLIB_TX];
+
+  /* Start with no data */
+  b->flags |=
+    VLIB_BUFFER_TOTAL_LENGTH_VALID | (src->flags & VLIB_BUFFER_IS_TRACED);
+  b->current_data = 0;
+  b->current_length = 0;
+
+  *mb = rte_mbuf_from_vlib_buffer (b);
+  rte_pktmbuf_reset (*mb);
+  b->flags |= VLIB_BUFFER_EXT_HDR_VALID;
+  return b;
+}
 
 #endif /* __DPDK_IPSEC_H__ */
 

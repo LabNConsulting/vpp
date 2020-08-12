@@ -291,6 +291,7 @@ static u32
 create_xcrw_interface (vlib_main_t * vm)
 {
   vnet_main_t *vnm = vnet_get_main ();
+  l2output_main_t *l2om = &l2output_main;
   static u32 instance;
   u8 address[6];
   u32 hw_if_index;
@@ -313,6 +314,11 @@ create_xcrw_interface (vlib_main_t * vm)
 
   /* Output to the sham tunnel invokes the encap node */
   hi->output_node_index = l2_xcrw_node.index;
+
+  /* Set up output_node_index_vec */
+  vec_validate_init_empty (l2om->output_node_index_vec, sw_if_index,
+    L2OUTPUT_NEXT_DROP);
+  l2output_create_output_node_mapping(vm, vnm, sw_if_index);
 
   return sw_if_index;
 }

@@ -84,6 +84,7 @@ typedef struct
   u8 src[6];
   u8 dst[6];
   u32 sw_if_index;
+  u16 new_next;
   u8 raw[12];			/* raw data */
 } l2output_trace_t;
 
@@ -95,9 +96,10 @@ format_l2output_trace (u8 * s, va_list * args)
   CLIB_UNUSED (vlib_node_t * node) = va_arg (*args, vlib_node_t *);
   l2output_trace_t *t = va_arg (*args, l2output_trace_t *);
 
-  s = format (s, "l2-output: sw_if_index %d dst %U src %U data "
+  s = format (s, "l2-output: sw_if_index %d new_next %d dst %U src %U data "
 	      "%02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x",
 	      t->sw_if_index,
+	      t->new_next,
 	      format_ethernet_address, t->dst,
 	      format_ethernet_address, t->src,
 	      t->raw[0], t->raw[1], t->raw[2], t->raw[3], t->raw[4],
@@ -421,10 +423,12 @@ VLIB_NODE_FN (l2output_node) (vlib_main_t * vm,
 	{
 	  if (PREDICT_FALSE (b[0]->flags & VLIB_BUFFER_IS_TRACED))
 	    {
+	      u16 off = frame->n_vectors - n_left;
 	      ethernet_header_t *h;
 	      l2output_trace_t *t =
 		vlib_add_trace (vm, node, b[0], sizeof (*t));
 	      t->sw_if_index = vnet_buffer (b[0])->sw_if_index[VLIB_TX];
+	      t->new_next = nexts[off];
 	      h = vlib_buffer_get_current (b[0]);
 	      clib_memcpy_fast (t->src, h->src_address, 6);
 	      clib_memcpy_fast (t->dst, h->dst_address, 6);

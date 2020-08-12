@@ -82,6 +82,11 @@ typedef enum
 
 extern vlib_node_registration_t l2_xcrw_node;
 
+extern int
+vnet_configure_l2_xcrw (vlib_main_t * vm, vnet_main_t * vnm,
+			u32 l2_sw_if_index, u32 tx_fib_index,
+			u8 * rewrite, u32 next_node_index, int is_add);
+
 #endif /* __included_l2_xcrw_h__ */
 
 /*

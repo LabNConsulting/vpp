@@ -142,12 +142,16 @@ ipsec_tun_protect_get_adj_next (vnet_link_t linkt,
 
   im = &ipsec_main;
 
+  /* XXX chopps: I guess this is a security thing? */
+  #if 0
   if (sa->crypto_alg == IPSEC_CRYPTO_ALG_NONE &&
       sa->integ_alg == IPSEC_INTEG_ALG_NONE)
     next = (is_ip4 ?
 	    im->esp4_no_crypto_tun_node_index :
 	    im->esp6_no_crypto_tun_node_index);
-  else if (itp->itp_flags & IPSEC_PROTECT_L2)
+  else
+#endif
+    if (itp->itp_flags & IPSEC_PROTECT_L2)
     next = (is_ip4 ?
 	    im->esp4_encrypt_l2_tun_node_index :
 	    im->esp6_encrypt_l2_tun_node_index);

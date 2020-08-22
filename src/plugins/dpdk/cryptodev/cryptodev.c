@@ -1080,6 +1080,7 @@ check_cryptodev_alg_support (u32 dev_id)
     return 0;
 }
 
+#if 0
 static u32
 cryptodev_count_queue (u32 numa)
 {
@@ -1101,6 +1102,7 @@ cryptodev_count_queue (u32 numa)
 
   return q_count;
 }
+#endif
 
 static int
 cryptodev_configure (vlib_main_t *vm, uint32_t cryptodev_id)
@@ -1217,10 +1219,14 @@ static int
 cryptodev_probe (vlib_main_t *vm, u32 n_workers)
 {
   cryptodev_main_t *cmt = &cryptodev_main;
+  /* XXX this is just wrong, as vm->numa_node is the numa for main thread only */
+#if 0
   u32 n_queues = cryptodev_count_queue (vm->numa_node);
+#endif
   u32 i;
   int ret;
 
+#if 0
   /* create an AESNI_MB PMD so the service is available */
   if (n_queues < n_workers)
     {
@@ -1229,6 +1235,7 @@ cryptodev_probe (vlib_main_t *vm, u32 n_workers)
       if (ret < 0)
 	return ret;
     }
+#endif
 
   for (i = 0; i < rte_cryptodev_count (); i++)
     {

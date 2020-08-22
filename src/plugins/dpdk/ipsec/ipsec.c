@@ -751,6 +751,10 @@ crypto_auto_placement (void)
 	  if (thread_idx < skip_master)
 	    continue;
 
+          /* Check that this cryptodev's numa matches threads numa node */
+          if (vlib_mains[thread_idx]->numa_node != dev->numa)
+            continue;
+
 	  /* Check thread is not already using the device */
 	  vec_foreach (idx, dev->used_resources)
 	    if (dcm->resource[idx[0]].thread_idx == thread_idx)

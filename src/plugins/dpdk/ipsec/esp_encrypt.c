@@ -437,6 +437,7 @@ dpdk_esp_encrypt_inline (vlib_main_t * vm,
 	  if (ipsec_sa_is_set_UDP_ENCAP (sa0) && !is_ip6)
 	    udp_encap_adv = sizeof (udp_header_t);
 	  u16 adv = 0;
+          u16 ip_add = 0;
 
 	  if (ipsec_sa_is_set_IS_TUNNEL (sa0))
 	    {
@@ -545,9 +546,13 @@ dpdk_esp_encrypt_inline (vlib_main_t * vm,
 
 	      if (is_ip6)
 		{
-		  orig_sz -= sizeof (ip6_header_t);
+                  /* subtract the already added IP header length */
+                  ip_add = sizeof (ip6_header_t);
+		  orig_sz -= ip_add;
 		  ih6_0 = (ip6_and_esp_header_t *) ih0;
 		  next_hdr_type = ih6_0->ip6.protocol;
+
+                  /* Move the IP header back to make room for esp+iv*/
 		  memmove (dst, src, rewrite_len + sizeof (ip6_header_t));
 		  oh6_0 = (ip6_and_esp_header_t *) oh0;
 		  oh6_0->ip6.protocol = IP_PROTOCOL_IPSEC_ESP;
@@ -555,23 +560,19 @@ dpdk_esp_encrypt_inline (vlib_main_t * vm,
 		}
 	      else		/* ipv4 */
 		{
-		  u16 ip_size = ip4_header_bytes (&ih0->ip4);
-		  orig_sz -= ip_size;
+		  ip_add = ip4_header_bytes (&ih0->ip4);
+                  /* subtract the already added IP header length */
+		  orig_sz -= ip_add;
 		  next_hdr_type = ih0->ip4.protocol;
-		  memmove (dst, src, rewrite_len + ip_size);
-		  oh0->ip4.protocol = IP_PROTOCOL_IPSEC_ESP;
-		  esp0 = (esp_header_t *) (((u8 *) oh0) + ip_size);
+
+                  /* Move the IP header back to make room for esp+iv*/
+		  memmove (dst, src, rewrite_len + ip_add);
 		  if (ipsec_sa_is_set_UDP_ENCAP (sa0))
-		    {
-		      oh0->ip4.protocol = IP_PROTOCOL_UDP;
-		      esp0 = (esp_header_t *)
-			(((u8 *) oh0) + ip_size + udp_encap_adv);
-		    }
+                    oh0->ip4.protocol = IP_PROTOCOL_UDP;
 		  else
-		    {
-		      oh0->ip4.protocol = IP_PROTOCOL_IPSEC_ESP;
-		      esp0 = (esp_header_t *) (((u8 *) oh0) + ip_size);
-		    }
+                    oh0->ip4.protocol = IP_PROTOCOL_IPSEC_ESP;
+                  esp0 = (esp_header_t *)
+                    (((u8 *) oh0) + ip_add + udp_encap_adv);
 		}
 	      esp0->spi = clib_host_to_net_u32 (sa0->spi);
 	      esp0->seq = clib_host_to_net_u32 (sa0->seq);
@@ -660,7 +661,7 @@ dpdk_esp_encrypt_inline (vlib_main_t * vm,
 	  mb0->data_off -= adv + rewrite_len;
 
 	  /* cipher offset starts after IV since we advanced that earlier */
-	  u32 cipher_off = adv + rewrite_len;
+	  u32 cipher_off = adv + rewrite_len + ip_add;
 	  u32 cipher_len = pad_payload_len;
 
 	  if (!is_aead && (cipher_alg->alg == RTE_CRYPTO_CIPHER_AES_CBC ||

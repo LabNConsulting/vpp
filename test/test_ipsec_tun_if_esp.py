@@ -21,6 +21,7 @@ from vpp_sub_interface import L2_VTR_OP, VppDot1QSubint
 from vpp_teib import VppTeib
 from util import ppp
 from vpp_papi import VppEnum
+from vpp_papi_provider import CliFailedCommandError
 from vpp_acl import AclRule, VppAcl, VppAclInterface
 
 
@@ -657,6 +658,7 @@ class TestIpsec4TunIfEspNoAlgo(TemplateIpsec, IpsecTun4):
     def tearDown(self):
         super(TestIpsec4TunIfEspNoAlgo, self).tearDown()
 
+    @unittest.skip("NULL aglo supported as valid now, doesn't drop")
     def test_tun_44(self):
         """ IPSec SA with NULL algos """
         p = self.ipv4_params
@@ -2512,8 +2514,8 @@ class TemplateIpsecItf4(object):
                                            [p.tun_sa_in])
         p.tun_protect.add_vpp_config()
 
-    def config_network(self, p):
-        p.tun_if = VppIpsecInterface(self)
+    def config_network(self, p, instance=0xffffffff):
+        p.tun_if = VppIpsecInterface(self, instance=instance)
 
         p.tun_if.add_vpp_config()
         p.tun_if.admin_up()
@@ -2554,6 +2556,18 @@ class TestIpsecItf4(TemplateIpsec,
 
     def tearDown(self):
         super(TestIpsecItf4, self).tearDown()
+
+    def test_tun_instance_44(self):
+        p = self.ipv4_params
+        self.config_network(p, instance=3)
+
+        with self.assertRaises(CliFailedCommandError):
+            self.vapi.cli("show interface ipsec0")
+
+        output = self.vapi.cli("show interface ipsec3")
+        self.assertTrue("unknown" not in output)
+
+        self.unconfig_network(p)
 
     def test_tun_44(self):
         """IPSEC interface IPv4"""
@@ -2621,6 +2635,32 @@ class TestIpsecItf4(TemplateIpsec,
         # teardown
         self.unconfig_protect(np)
         self.unconfig_sa(np)
+        self.unconfig_network(p)
+
+    def test_tun_44_null(self):
+        """IPSEC interface IPv4 NULL auth/crypto"""
+
+        n_pkts = 127
+        p = copy.copy(self.ipv4_params)
+
+        p.auth_algo_vpp_id = (VppEnum.vl_api_ipsec_integ_alg_t.
+                              IPSEC_API_INTEG_ALG_NONE)
+        p.crypt_algo_vpp_id = (VppEnum.vl_api_ipsec_crypto_alg_t.
+                               IPSEC_API_CRYPTO_ALG_NONE)
+        p.crypt_algo = "NULL"
+        p.auth_algo = "NULL"
+
+        self.config_network(p)
+        self.config_sa_tun(p,
+                           self.pg0.local_ip4,
+                           self.pg0.remote_ip4)
+        self.config_protect(p)
+
+        self.verify_tun_44(p, count=n_pkts)
+
+        # teardown
+        self.unconfig_protect(p)
+        self.unconfig_sa(p)
         self.unconfig_network(p)
 
 

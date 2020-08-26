@@ -1,0 +1,127 @@
+/* Hey Emacs use -*- mode: C -*-
+ *
+ * Copyright (c) 2020, LabN Consulting, L.L.C.
+ * Copyright (c) 2015 Cisco and/or its affiliates.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at:
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/* Define a simple binary API to control the feature */
+
+autoreply define etfs3_encap_add {
+    /* Client identifier, set from api_main.my_client_index */
+    u32 client_index;
+
+    /* Arbitrary context, so client can match reply to request */
+    u32 context;
+
+    u32	framesize;
+    u32	tx_rate_bits_msec;
+    u32	max_aggr_time_usec;
+    u32	rxport;
+    u32	txport;
+    u8	stea[6];
+    u8	dtea[6];
+};
+
+autoreply define etfs3_encap_delete {
+    u32 client_index;
+    u32 context;
+
+    u32	rxport;
+};
+
+autoreply define etfs3_decap_add {
+    /* Client identifier, set from api_main.my_client_index */
+    u32 client_index;
+
+    /* Arbitrary context, so client can match reply to request */
+    u32 context;
+
+    u32	rxport;
+    u32	txport;
+};
+
+autoreply define etfs3_decap_delete {
+    u32 client_index;
+    u32 context;
+
+    u32	rxport;
+    bool is_macsec;
+};
+
+/** \brief Dump the table of ETFS encapsulation flows
+    @param client_index - opaque cookie to identify the sender
+    @param context - sender context, to match reply w/ request
+    @param index - index of flow to dump, or ~0 to retrieve all flows
+*/
+define etfs3_encap_flow_dump {
+    u32	client_index;
+    u32	context;
+    u16	index;
+};
+
+/** \brief ETFS encapsulation flow details structure
+    @param context - sender context, to match reply w/ request
+    @param framesize - ETFS frame size
+    @param tx_rate_bits_msec - constant transmit rate for this flow
+    @param max_aggr_time_usec - upper limit on how long to wait for data to fill ETFS frame
+    @param rx_sw_if_index - sw_if_index of interface receiving unencapsulated frames
+    @param tx_sw_if_index - sw_if_index of interface transmitting ETFS frames
+    @param index - local identifier for this flow.  Used by statistics API ([index @ thread]).
+    @param stea - source address of ETFS frame
+    @param dtea - destination address of ETFS frame
+    @param ipsec_sa_index - the index into the vector of IPsec SAs for this MACSec SA
+    @param macsec_enabled - 0 if disabled, 1 if enabled
+*/
+define etfs3_encap_flow_details {
+    u32	context;
+    u32	framesize;
+    u32	tx_rate_bits_msec;
+    u32	max_aggr_time_usec;
+    u32	rx_sw_if_index;
+    u32	tx_sw_if_index;
+    u16	index;
+    u8	stea[6];
+    u8	dtea[6];
+    u32	ipsec_sa_index;
+    u32	macsec_enabled;
+};
+
+/** \brief Dump the table of ETFS decapsulation flows
+    @param client_index - opaque cookie to identify the sender
+    @param context - sender context, to match reply w/ request
+    @param index - index of flow to dump, or ~0 to retrieve all flows
+*/
+define etfs3_decap_flow_dump {
+    u32	client_index;
+    u32	context;
+    u16	index;
+};
+
+/** \brief ETFS decapsulation flow details structure
+    @param context - sender context, to match reply w/ request
+    @param rx_sw_if_index - sw_if_index of interface receiving unencapsulated frames
+    @param tx_sw_if_index - sw_if_index of interface transmitting ETFS frames
+    @param index - local identifier for this flow.  Used by statistics API ([index @ thread]).
+    @param ipsec_sa_index - the index into the vector of IPsec SAs for this MACSec SA
+    @param macsec_enabled - 0 if disabled, 1 if enabled
+*/
+define etfs3_decap_flow_details {
+    u32	context;
+    u32	rx_sw_if_index;
+    u32	tx_sw_if_index;
+    u16	index;
+    u32	ipsec_sa_index;
+    u32	macsec_enabled;
+};

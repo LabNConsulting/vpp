@@ -1,0 +1,42 @@
+2020-Feb-28 gpz
+
+ETFS flows may be configured with macsec. The macsec implementation
+relies on dpdk crypto devices.
+
+As of this writing, only the software crypto device (crypto_openssl)
+has been tested successfully. The Marvell crypto device (crypto_mvsam0)
+has been tested but does not initialize reliably.
+
+To use etfs with macsec:
+
+1. Configure the openssl crypto device in the vpp configuration file:
+
+    dpdk {
+        .
+        .
+        .
+      vdev crypto_openssl0
+        .
+        .
+        .
+    }
+
+2. In the vppctl commands that establish etfs encap and decap flows,
+   include macsec parameters:
+
+        etfs3 decap add rx UnknownEthernet0 tx host-vpp1 \
+	    stea 11:12:13:14:15:16 macsec crypto-alg aes-gcm-256 \
+	    rx-crypto-key \
+	    4a506a794f574265564551694d6537684a506a794f574265564551694d653768
+
+        etfs3 encap add rx host-vpp1 tx UnknownEthernet0 rate 80000 \
+	    maxagg 10000 stea 21:22:23:24:25:26 \
+	    dtea 11:12:13:14:15:16 \
+	    macsec crypto-alg aes-gcm-256 \
+	    tx-crypto-key \
+	    4a506a794f574265564551694d6537684a506a794f574265564551694d653768
+
+   Note that when specifying an etfs decap flow with macsec decryption,
+   you must provide the ethernet address (stea) of the sender because it
+   is an input to the cryptographic algorithm.
+

@@ -45,6 +45,7 @@ extern struct dpdk_buffer_debug_main bdm;
 
 #include <vnet/vnet.h>
 #include <vlib/vlib.h>
+#include <vppinfra/elog.h>
 
 #define rte_mbuf_from_vlib_buffer(x) (((struct rte_mbuf *)x) - 1)
 #define vlib_buffer_from_rte_mbuf(x) ((vlib_buffer_t *)(x+1))
@@ -118,6 +119,24 @@ dpdk_validate_rte_mbuf (vlib_main_t * vm, vlib_buffer_t * b,
 }
 
 clib_error_t *dpdk_buffer_pools_create (vlib_main_t * vm);
+
+/*
+ * ELOG
+ */
+#define DPDK_ELOG(e, t)                                                 \
+  ELOG_TRACK_DATA_INLINE (&vlib_global_main.elog_main, (e), (t))
+
+#define DPDK_ELOG_THREAD(e, thread_index)                               \
+  DPDK_ELOG ((e), vlib_worker_threads[(thread_index)].elog_track)
+
+#define DPDK_ELOG_CURRENT_THREAD(e)                     \
+  DPDK_ELOG_THREAD ((e), vlib_get_thread_index ())
+
+#define DPDK_ENABLE_CRYPTO_ERROR_ELOG 1
+#define DPDK_ENABLE_CRYPT_NODE_ELOG 0
+#define DPDK_ENABLE_TIMING_FREE_BUFFER_ELOG 0
+#define DPDK_ENABLE_TIMING_CRYPTO_DEQUEUE_ELOG 0
+#define DPDK_ENABLE_TX_BURST_ELOG 0
 
 #endif /* include_dpdk_buffer_h */
 

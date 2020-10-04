@@ -176,6 +176,17 @@ dpdk_crypto_dequeue (vlib_main_t * vm, crypto_worker_main_t * cwm,
   if (n_ops == 0)
     return 0;
 
+#if DPDK_ENABLE_TIMING_CRYPTO_DEQUEUE_ELOG
+  /* *INDENT-OFF* */
+  ELOG_TYPE_DECLARE (event_deq) = {
+                                      .format = "dpdk-crypto-deq n_ops %u",
+                                      .format_args = "i4",
+  };
+  /* *INDENT-ON* */
+  u32 *esd = DPDK_ELOG_CURRENT_THREAD (event_deq);
+  *esd++ = n_ops;
+#endif
+
   while (n_ops >= 4)
     {
       struct rte_crypto_op *op0, *op1, *op2, *op3;
@@ -294,6 +305,18 @@ dpdk_crypto_dequeue (vlib_main_t * vm, crypto_worker_main_t * cwm,
   /* free the source chains that have been copied to a dst buffer */
   if (free_bi != free_bis)
     vlib_buffer_free (vm, free_bis, free_bi - free_bis);
+
+#if DPDK_ENABLE_TIMING_CRYPTO_DEQUEUE_ELOG
+  /* *INDENT-OFF* */
+  /* *INDENT-OFF* */
+  ELOG_TYPE_DECLARE (event_deq_sent) = {
+                                   .format = "dpdk-crypto-deq sent %u",
+                                   .format_args = "i4",
+  };
+  /* *INDENT-ON* */
+  esd = DPDK_ELOG_CURRENT_THREAD (event_deq_sent);
+  *esd++ = total_n_deq;
+#endif
 
   return total_n_deq;
 }

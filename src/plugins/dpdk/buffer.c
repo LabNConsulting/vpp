@@ -337,6 +337,17 @@ CLIB_MULTIARCH_FN (dpdk_ops_vpp_enqueue) (struct rte_mempool * mp,
   u32 n_left = n;
   void *const *obj = obj_table;
 
+#if DPDK_ENABLE_TIMING_FREE_BUFFER_ELOG
+  /* *INDENT-OFF* */
+  ELOG_TYPE_DECLARE (ev_bufenq1) = {
+                                   .format = "dpdk-ops-vpp-enqueue freeing %d",
+                                   .format_args = "i4",
+  };
+  /* *INDENT-ON* */
+  u32 *esd1 = DPDK_ELOG_CURRENT_THREAD (ev_bufenq1);
+  esd1[0] = n;
+#endif
+
   vlib_buffer_copy_template (&bt, &bp->buffer_template);
 
   while (n_left >= 4)
@@ -372,6 +383,17 @@ CLIB_MULTIARCH_FN (dpdk_ops_vpp_enqueue) (struct rte_mempool * mp,
 					   n, sizeof (struct rte_mbuf));
       vlib_buffer_pool_put (vm, buffer_pool_index, bufs, n);
     }
+
+#if DPDK_ENABLE_TIMING_FREE_BUFFER_ELOG
+  /* *INDENT-OFF* */
+  ELOG_TYPE_DECLARE (ev_bufenq2) = {
+                                   .format = "dpdk-ops-vpp-enqueue freed %d",
+                                   .format_args = "i4",
+  };
+  /* *INDENT-ON* */
+  u32 *esd2 = DPDK_ELOG_CURRENT_THREAD (ev_bufenq2);
+  esd2[0] = esd1[0];
+#endif
 
   return 0;
 }

@@ -348,8 +348,23 @@ crypto_enqueue_ops (vlib_main_t * vm, crypto_worker_main_t * cwm,
       /* XXX chopps: except the check against 1/2 of the queue should protect us */
       // ASSERT (n_ops == enq);
       if (n_ops != enq)
-        clib_warning("%s: failed to queue all expected packets %u vs %u", __FUNCTION__,
-                     enq, n_ops);
+        {
+#if DPDK_ENABLE_CRYPTO_ERROR_ELOG
+          /* *INDENT-OFF* */
+          ELOG_TYPE_DECLARE (event_enq_unequal) = {
+            .format = "crypto-enqueue-ops-bad n_ops %d enq %d encrypt/decrypt %d",
+            .format_args = "i4i4i4"
+          };
+          /* *INDENT-ON* */
+          u32 *esd = DPDK_ELOG_CURRENT_THREAD (event_enq_unequal);
+          *esd++ = n_ops;
+          *esd++ = enq;
+          *esd++ = encrypt;
+#endif
+
+          clib_warning ("%s: failed to queue all expected packets %u vs %u",
+                        __FUNCTION__, enq, n_ops);
+        }
       res->inflights[encrypt] += enq;
 
       if (PREDICT_FALSE (enq < res->n_ops))
@@ -365,6 +380,21 @@ crypto_enqueue_ops (vlib_main_t * vm, crypto_worker_main_t * cwm,
           for (; op < eop; op++)
             if (op[0]->sym->m_dst)
               *free_bi++ = vlib_get_buffer_index (vm, vlib_buffer_from_rte_mbuf (op[0]->sym->m_src));
+
+#if DPDK_ENABLE_CRYPTO_ERROR_ELOG
+          /* *INDENT-OFF* */
+          ELOG_TYPE_DECLARE (event_enq_err) = {
+            .format = "crypto-enqueue-ops-err e/dcrypt %d res->n_ops %d enq %d (n_ops %d)",
+            .format_args = "i4i4i4i4"
+          };
+          /* *INDENT-ON* */
+          u32 *esd = DPDK_ELOG_CURRENT_THREAD (event_enq_err);
+          *esd++ = encrypt;
+          *esd++ = res->n_ops;
+          *esd++ = enq;
+          *esd++ = n_ops;
+#endif
+
           vlib_buffer_free (vm, free_bis, free_bi - free_bis);
           crypto_free_ops (numa, &res->ops[enq], res->n_ops - enq);
           /* Not sure why this *only use* of res->bi below is optimizing for... */

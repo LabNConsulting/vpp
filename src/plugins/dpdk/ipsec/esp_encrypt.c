@@ -174,6 +174,17 @@ dpdk_esp_encrypt_inline (vlib_main_t * vm,
 
   next_index = ESP_ENCRYPT_NEXT_DROP;
 
+#if DPDK_ENABLE_CRYPT_NODE_ELOG
+  /* *INDENT-OFF* */
+  ELOG_TYPE_DECLARE (event_enc_in) = {
+      .format = "escp-encrypt packets-in %d",
+      .format_args = "i4",
+  };
+  /* *INDENT-ON* */
+  u32 *esd = DPDK_ELOG_CURRENT_THREAD (event_enc_in);
+  *esd = n_left_from;
+#endif
+
   while (n_left_from > 0)
     {
       u32 n_left_to_next;

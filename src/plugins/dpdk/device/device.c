@@ -187,6 +187,18 @@ static_always_inline
 	  /* no wrap, transmit in one burst */
 	  n_sent = rte_eth_tx_burst (xd->port_id, queue_id, mb, n_left);
 	  n_retry--;
+#if DPDK_ENABLE_TX_BURST_ELOG
+          /* *INDENT-OFF* */
+          ELOG_TYPE_DECLARE (event_enc_in) = {
+                                              .format = "dpdk-tx-burst tosend %d sent %d retry %d",
+                                              .format_args = "i4i4i4",
+          };
+          /* *INDENT-ON* */
+	  u32 *esd = DPDK_ELOG_CURRENT_THREAD (event_enc_in);
+	  *esd++ = n_left;
+	  *esd++ = n_sent;
+	  *esd++ = n_retry;
+#endif
 	}
       else
 	{

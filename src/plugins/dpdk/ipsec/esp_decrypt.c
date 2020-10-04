@@ -139,6 +139,17 @@ dpdk_esp_decrypt_inline (vlib_main_t * vm,
 
   next_index = ESP_DECRYPT_NEXT_DROP;
 
+#if DPDK_ENABLE_CRYPT_NODE_ELOG
+  /* *INDENT-OFF* */
+  ELOG_TYPE_DECLARE (event_dec_in) = {
+      .format = "esp-decrypt packets-in %d",
+      .format_args = "i4"
+  };
+  /* *INDENT-ON* */
+  u32 *esd = DPDK_ELOG_CURRENT_THREAD (event_dec_in);
+  *esd = n_left_from;
+#endif
+
   while (n_left_from > 0)
     {
       u32 n_left_to_next;
@@ -532,6 +543,17 @@ dpdk_esp_decrypt_post_inline (vlib_main_t * vm,
   n_left_from = from_frame->n_vectors;
 
   next_index = node->cached_next_index;
+
+#if DPDK_ENABLE_CRYPT_NODE_ELOG
+  /* *INDENT-OFF* */
+  ELOG_TYPE_DECLARE (event_dec_in) = {
+      .format = "esp-decrypt-post packets-in %d",
+      .format_args = "i4"
+  };
+  /* *INDENT-ON* */
+  u32 *esd = DPDK_ELOG_CURRENT_THREAD (event_dec_in);
+  *esd = n_left_from;
+#endif
 
   while (n_left_from > 0)
     {

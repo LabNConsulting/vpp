@@ -38,6 +38,7 @@
  */
 
 #include <vnet/ip/ip.h>
+#include <vnet/ip/ip_interface_address_watch.h>
 
 ip_main_t ip_main;
 
@@ -100,6 +101,8 @@ do {						\
 	hash_set (im->port_info_by_port, pi->port, i);
       }
   }
+
+  ip46_interface_address_register_callbacks();
 
   return error;
 }

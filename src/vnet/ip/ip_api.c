@@ -47,6 +47,7 @@
 #include <vnet/ip/reass/ip6_sv_reass.h>
 #include <vnet/ip/reass/ip6_full_reass.h>
 #include <vnet/ip/ip_table.h>
+#include <vnet/ip/ip_interface_address_watch.h>
 
 #include <vnet/vnet_msg_enum.h>
 
@@ -101,7 +102,8 @@ _(IP_SOURCE_AND_PORT_RANGE_CHECK_INTERFACE_ADD_DEL,                     \
 _(IP_REASSEMBLY_SET, ip_reassembly_set)                                 \
 _(IP_REASSEMBLY_GET, ip_reassembly_get)                                 \
 _(IP_REASSEMBLY_ENABLE_DISABLE, ip_reassembly_enable_disable)           \
-_(IP_PUNT_REDIRECT_DUMP, ip_punt_redirect_dump)
+_(IP_PUNT_REDIRECT_DUMP, ip_punt_redirect_dump)				\
+_(WANT_IP_INTERFACE_ADDRESS_EVENTS, want_ip_interface_address_events)
 
 static void
   vl_api_sw_interface_ip6_enable_disable_t_handler
@@ -1669,6 +1671,75 @@ vl_api_ip_punt_redirect_dump_t_handler (vl_api_ip_punt_redirect_dump_t * mp)
   else
     ip_punt_redirect_walk (fproto, send_ip_punt_redirect_details, &ctx);
 }
+
+static void
+  vl_api_want_ip_interface_address_events_t_handler
+  (vl_api_want_ip_interface_address_events_t * mp)
+{
+  vl_api_want_ip_interface_address_events_reply_t *rmp;
+  ip46_type_t itype;
+  int rv = 0;
+
+  if (mp->sw_if_index != ~0)
+    VALIDATE_SW_IF_INDEX (mp);
+
+  ip_interface_address_watcher_t watch = {
+    .client_index = mp->client_index,
+    .pid = mp->pid,
+  };
+
+  itype = mp->is_ipv6 ? IP46_TYPE_IP6 : IP46_TYPE_IP4;
+  if (mp->enable)
+    ip_interface_address_watch (itype, ntohl (mp->sw_if_index), &watch);
+  else
+    ip_interface_address_unwatch (itype, ntohl (mp->sw_if_index), &watch);
+
+  BAD_SW_IF_INDEX_LABEL;
+  REPLY_MACRO (VL_API_WANT_IP_INTERFACE_ADDRESS_EVENTS_REPLY);
+}
+
+void
+ip_interface_address_handle_event (const ip_interface_address_event_t * event)
+{
+  vl_api_ip_interface_address_event_t *mp;
+  vl_api_registration_t *reg;
+
+  /* Customer(s) requesting event for this neighbor */
+  reg = vl_api_client_index_to_registration (event->client_index);
+  if (!reg)
+    return;
+
+  if (vl_api_can_send_msg (reg))
+    {
+      mp = vl_msg_api_alloc (sizeof (*mp));
+      clib_memset (mp, 0, sizeof (*mp));
+      mp->_vl_msg_id =
+	ntohs (VL_API_IP_INTERFACE_ADDRESS_EVENT + REPLY_MSG_ID_BASE);
+      mp->client_index = event->client_index;
+      mp->pid = event->pid;
+      mp->sw_if_index = htonl (event->sw_if_index);
+      mp->is_add = event->is_delete ? 0 : 1;
+      ip_prefix_encode2 (&event->prefix, &mp->prefix);
+
+      vl_api_send_msg (reg, (u8 *) mp);
+    }
+  else
+    {
+      static f64 last_time;
+      /*
+       * Throttle syslog msgs.
+       * It's pretty tempting to just revoke the registration...
+       */
+      if (vlib_time_now (vlib_get_main ()) > last_time + 10.0)
+	{
+	  clib_warning
+	    ("ip interface address event on sw interface index %u: queue stuffed!",
+	     event->sw_if_index);
+	  last_time = vlib_time_now (vlib_get_main ());
+	}
+    }
+}
+
 
 #define vl_msg_name_crc_list
 #include <vnet/ip/ip.api.h>

@@ -131,7 +131,6 @@ ipsec_tun_protect_get_adj_next (vnet_link_t linkt,
 				const ipsec_tun_protect_t * itp)
 {
   ipsec_main_t *im;
-  ipsec_sa_t *sa;
   bool is_ip4;
   u32 next;
 
@@ -141,7 +140,6 @@ ipsec_tun_protect_get_adj_next (vnet_link_t linkt,
   else
     is_ip4 = ip46_address_is_ip4 (&itp->itp_tun.src);
 
-  sa = ipsec_sa_get (itp->itp_out_sa);
   im = &ipsec_main;
 
   if (sa->crypto_alg == IPSEC_CRYPTO_ALG_NONE &&

@@ -268,9 +268,9 @@ class VppPapiProvider(object):
             setattr(self, name, method)
         return method
 
-    def connect(self):
+    def connect(self, rx_qlen=None):
         """Connect the API to VPP"""
-        self.vpp.connect(self.name, self.shm_prefix)
+        self.vpp.connect(self.name, self.shm_prefix, rx_qlen=rx_qlen)
         self.papi = self.vpp.api
         self.vpp.register_event_callback(self)
 

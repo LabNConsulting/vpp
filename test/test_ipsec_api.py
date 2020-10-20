@@ -3,6 +3,7 @@ import unittest
 from framework import VppTestCase, VppTestRunner
 from template_ipsec import TemplateIpsec, IPsecIPv4Params
 from vpp_papi import VppEnum
+from vpp_ipsec import VppIpsecSpd
 
 
 class IpsecApiTestCase(VppTestCase):
@@ -152,6 +153,86 @@ class IpsecApiTestCase(VppTestCase):
             entry={
                 'sad_id': scapy_tun_sa_id
             })
+
+    def test_set_and_query_sa_originator(self):
+        """ Create an SA and verify the originator value. """
+        params = self.ipv4_params
+        addr_type = params.addr_type
+        is_ipv6 = params.is_ipv6
+        scapy_tun_sa_id = params.scapy_tun_sa_id
+        scapy_tun_spi = params.scapy_tun_spi
+        auth_algo_vpp_id = params.auth_algo_vpp_id
+        auth_key = params.auth_key
+        crypt_algo_vpp_id = params.crypt_algo_vpp_id
+        crypt_key = params.crypt_key
+        originator = 1
+
+        self.vapi.ipsec_set_originator(
+            originator=originator)
+
+        self.vapi.ipsec_sad_entry_add_del(
+            is_add=1,
+            entry={
+                'sad_id': scapy_tun_sa_id,
+                'spi': scapy_tun_spi,
+                'integrity_algorithm': auth_algo_vpp_id,
+                'integrity_key': {
+                    'data': auth_key,
+                    'length': len(auth_key),
+                },
+                'crypto_algorithm': crypt_algo_vpp_id,
+                'crypto_key': {
+                    'data': crypt_key,
+                    'length': len(crypt_key),
+                },
+                'protocol': self.vpp_ah_protocol,
+                'tunnel_src': self.pg0.local_addr[addr_type],
+                'tunnel_dst': self.pg0.remote_addr[addr_type]
+            })
+
+        dump = self.vapi.ipsec_sa_originator_dump(
+            originator=originator)
+
+        if len(dump) == 0:
+                raise Exception(
+                  f"SA with originator={originator} expected, but not found")
+
+        for one in dump:
+            if one.originator != originator:
+                raise Exception(
+                  f"found originator {one.originator}, expected {originator}")
+
+        self.vapi.ipsec_sad_entry_add_del(
+            is_add=0,
+            entry={
+                'sad_id': scapy_tun_sa_id
+            })
+
+    def test_set_and_query_spd_originator(self):
+        """ Create an SPD entry and verify the originator value. """
+        originator = 1
+        tun_spd_id = 2
+        spd = VppIpsecSpd(self, tun_spd_id)
+
+        self.vapi.ipsec_set_originator(
+            originator=originator)
+
+        spd.add_vpp_config()
+
+        dump = self.vapi.ipsec_spd_originator_dump(
+            originator=originator)
+
+        if len(dump) == 0:
+                raise Exception(
+                  f"SPD with originator={originator} expected, but not found")
+
+        for one in dump:
+            if one.originator != originator:
+                raise Exception(
+                  f"found originator {one.originator}, expected {originator}")
+
+        spd.remove_vpp_config()
+
 
 if __name__ == '__main__':
     unittest.main(testRunner=VppTestRunner)

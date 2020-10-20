@@ -174,8 +174,9 @@ ipsec_sa_add_and_lock (u32 id,
 		       ipsec_integ_alg_t integ_alg,
 		       const ipsec_key_t * ik,
 		       ipsec_sa_flags_t flags,
-                       u8 _tfs_type,
-                       void *tfs_config,
+		       u32 originator,
+		       u8 _tfs_type,
+		       void *tfs_config,
 		       u32 tx_table_id,
 		       u32 salt,
 		       const ip46_address_t * tun_src,
@@ -209,6 +210,7 @@ ipsec_sa_add_and_lock (u32 id,
   sa->stat_index = sa_index;
   sa->protocol = proto;
   sa->flags = flags;
+  sa->originator = originator;
   sa->tfs_type = _tfs_type;
   sa->salt = salt;
   sa->encrypt_thread_index = (vlib_num_workers ())? ~0 : 0;

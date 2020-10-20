@@ -49,12 +49,14 @@ typedef struct
   u32 id;
   /** vectors for each of the policy types */
   u32 *policies[IPSEC_SPD_POLICY_N_TYPES];
+  u32 originator;
 } ipsec_spd_t;
 
 /**
  * @brief Add/Delete a SPD
  */
-extern int ipsec_add_del_spd (vlib_main_t * vm, u32 spd_id, int is_add);
+extern int ipsec_add_del_spd (vlib_main_t * vm, u32 spd_id, u32 originator,
+			      int is_add);
 
 /**
  * @brief Bind/attach a SPD to an interface

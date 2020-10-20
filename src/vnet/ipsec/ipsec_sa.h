@@ -233,6 +233,8 @@ typedef struct
     };
     u64 data;
   } async_op_data;
+
+  u32 originator;
 } ipsec_sa_t;
 
 STATIC_ASSERT_OFFSET_OF (ipsec_sa_t, cacheline1, CLIB_CACHE_LINE_BYTES);
@@ -281,6 +283,7 @@ extern int ipsec_sa_add_and_lock (u32 id,
 				  ipsec_integ_alg_t integ_alg,
 				  const ipsec_key_t * ik,
 				  ipsec_sa_flags_t flags,
+				  u32 originator,
 				  u8 tfs_type,
 				  void *tfs_config,
 				  u32 tx_table_id,

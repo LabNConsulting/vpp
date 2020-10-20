@@ -553,6 +553,56 @@ autoreply define ipsec_set_async_mode {
   bool async_enable;
 };
 
+/** \brief IPsec Set Originator Value
+
+    Subsequent ipsec_spd_add_del and ipsec_sad_entry_add_del RPCs,
+    issued on the same client connection, that add entires will use this
+    originator value.
+
+    @param client_index - opaque cookie to identify the sender
+    @param context - sender context, to match reply w/ request
+    @param originator - value used to indicate the source of a SAD or SPD entry
+*/
+autoreply define ipsec_set_originator {
+  u32 client_index;
+  u32 context;
+  u32 originator;
+};
+
+/** \brief Dump originator value for Security Association Database entry
+    @param client_index - opaque cookie to identify the sender
+    @param context - sender context, to match reply w/ request
+    @param originator - set to ~0 to see all entries in SAD, any other value to filter by originator.
+*/
+define ipsec_sa_originator_dump {
+  u32 client_index;
+  u32 context;
+  u32 originator;
+};
+
+define ipsec_sa_originator_details {
+  u32 context;
+  u32 sa_id;
+  u32 originator;
+};
+
+/** \brief Dump originator value for Security Policy Database entry
+    @param client_index - opaque cookie to identify the sender
+    @param context - sender context, to match reply w/ request
+    @param originator - set to ~0 to see all entries in SPD, any other value to filter by originator.
+*/
+define ipsec_spd_originator_dump {
+  u32 client_index;
+  u32 context;
+  u32 originator;
+};
+
+define ipsec_spd_originator_details {
+  u32 context;
+  u32 spd_id;
+  u32 originator;
+};
+
 /*
  * Local Variables:
  * eval: (c-set-style "gnu")

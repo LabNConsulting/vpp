@@ -73,7 +73,10 @@ _(IPSEC_BACKEND_DUMP, ipsec_backend_dump)                       \
 _(IPSEC_TUNNEL_PROTECT_UPDATE, ipsec_tunnel_protect_update)     \
 _(IPSEC_TUNNEL_PROTECT_DEL, ipsec_tunnel_protect_del)           \
 _(IPSEC_TUNNEL_PROTECT_DUMP, ipsec_tunnel_protect_dump)         \
-_(IPSEC_SET_ASYNC_MODE, ipsec_set_async_mode)
+_(IPSEC_SET_ASYNC_MODE, ipsec_set_async_mode)                   \
+_(IPSEC_SET_ORIGINATOR, ipsec_set_originator)                   \
+_(IPSEC_SA_ORIGINATOR_DUMP, ipsec_sa_originator_dump)           \
+_(IPSEC_SPD_ORIGINATOR_DUMP, ipsec_spd_originator_dump)
 
 static void
 vl_api_ipsec_spd_add_del_t_handler (vl_api_ipsec_spd_add_del_t * mp)
@@ -83,10 +86,21 @@ vl_api_ipsec_spd_add_del_t_handler (vl_api_ipsec_spd_add_del_t * mp)
 #else
 
   vlib_main_t *vm __attribute__ ((unused)) = vlib_get_main ();
+  ipsec_main_t *im = &ipsec_main;
   vl_api_ipsec_spd_add_del_reply_t *rmp;
+  u32 originator = 0;
   int rv;
 
-  rv = ipsec_add_del_spd (vm, ntohl (mp->spd_id), mp->is_add);
+  if (mp->is_add)
+    {
+      uword *p;
+
+      p = hash_get (im->originator_by_client_index, mp->client_index);
+      if (p)
+	originator = p[0];
+    }
+
+  rv = ipsec_add_del_spd (vm, ntohl (mp->spd_id), originator, mp->is_add);
 
   REPLY_MACRO (VL_API_IPSEC_SPD_ADD_DEL_REPLY);
 #endif
@@ -177,6 +191,7 @@ typedef struct ipsec_dump_walk_ctx_t_
 {
   vl_api_registration_t *reg;
   u32 context;
+  u32 id;
 } ipsec_dump_walk_ctx_t;
 
 static walk_rc_t
@@ -355,6 +370,8 @@ static void vl_api_ipsec_sad_entry_add_del_t_handler
 
   if (mp->is_add)
     {
+      u32 originator = 0;
+      uword *p;
 
       spi = ntohl (mp->entry.spi);
 
@@ -387,16 +404,22 @@ static void vl_api_ipsec_sad_entry_add_del_t_handler
 	ipsec_tfs_config_decode (mp->entry.tfs_config,
 				 mp->entry.tfs_config_len);
 
+      p = hash_get (ipsec_main.originator_by_client_index, mp->client_index);
+      if (p)
+	originator = p[0];
+
       rv = ipsec_sa_add_and_lock (id, spi, proto,
 				  crypto_alg, &crypto_key,
-				  integ_alg, &integ_key, flags, tfs_type,
-				  tfs_config,
+				  integ_alg, &integ_key, flags,
+				  originator, tfs_type, tfs_config,
 				  0, mp->entry.salt, &tun_src, &tun_dst,
 				  &sa_index, htons (mp->entry.udp_src_port),
 				  htons (mp->entry.udp_dst_port));
     }
   else
-    rv = ipsec_sa_unlock_id (id);
+    {
+      rv = ipsec_sa_unlock_id (id);
+    }
 
 #else
   rv = VNET_API_ERROR_UNIMPLEMENTED;
@@ -672,8 +695,8 @@ vl_api_ipsec_tunnel_if_add_del_t_handler (vl_api_ipsec_tunnel_if_add_del_t *
 	{
 	  tfs_config =
 	    ipsec_tfs_config_decode (mp->tfs_config, mp->tfs_config_len);
-          rv = ipsec_itf_create(~0, TUNNEL_MODE_P2P, &sw_if_index);
-          flags |= IPSEC_SA_FLAG_IS_TUNNEL;
+	  rv = ipsec_itf_create (~0, TUNNEL_MODE_P2P, &sw_if_index);
+	  flags |= IPSEC_SA_FLAG_IS_TUNNEL;
 	}
       else
 	rv = ipip_add_tunnel (transport,
@@ -694,7 +717,7 @@ vl_api_ipsec_tunnel_if_add_del_t_handler (vl_api_ipsec_tunnel_if_add_del_t *
 				  mp->integ_alg,
 				  &integ_key,
 				  (flags | IPSEC_SA_FLAG_IS_INBOUND),
-				  tfs_type, tfs_config,
+				  0, tfs_type, tfs_config,
 				  ntohl (mp->tx_table_id),
 				  mp->salt, &remote_ip, &local_ip, NULL,
 				  IPSEC_UDP_PORT_NONE, IPSEC_UDP_PORT_NONE);
@@ -710,7 +733,7 @@ vl_api_ipsec_tunnel_if_add_del_t_handler (vl_api_ipsec_tunnel_if_add_del_t *
 				  mp->integ_alg,
 				  &integ_key,
 				  flags,
-				  tfs_type, tfs_config,
+				  0, tfs_type, tfs_config,
 				  ntohl (mp->tx_table_id),
 				  mp->salt, &local_ip, &remote_ip, NULL,
 				  IPSEC_UDP_PORT_NONE, IPSEC_UDP_PORT_NONE);
@@ -1058,6 +1081,105 @@ vl_api_ipsec_set_async_mode_t_handler (vl_api_ipsec_set_async_mode_t * mp)
   REPLY_MACRO (VL_API_IPSEC_SET_ASYNC_MODE_REPLY);
 }
 
+static walk_rc_t
+send_ipsec_sa_originator_details (ipsec_sa_t * sa, void *arg)
+{
+  ipsec_dump_walk_ctx_t *ctx = arg;
+  vl_api_ipsec_sa_originator_details_t *mp;
+
+  if (ctx->id == ~0 || ctx->id == sa->originator)
+    {
+      mp = vl_msg_api_alloc (sizeof (*mp));
+      clib_memset (mp, 0, sizeof (*mp));
+      mp->_vl_msg_id = ntohs (VL_API_IPSEC_SA_ORIGINATOR_DETAILS);
+      mp->context = ctx->context;
+
+      mp->sa_id = htonl (sa->id);
+      mp->originator = htonl (sa->originator);
+      vl_api_send_msg (ctx->reg, (u8 *) mp);
+    }
+  return WALK_CONTINUE;
+}
+
+static void
+vl_api_ipsec_set_originator_t_handler (vl_api_ipsec_set_originator_t * mp)
+{
+  vl_api_ipsec_set_originator_reply_t *rmp;
+  int rv = 0;
+
+  hash_set (ipsec_main.originator_by_client_index, mp->client_index,
+	    ntohl (mp->originator));
+  REPLY_MACRO (VL_API_IPSEC_SET_ORIGINATOR_REPLY);
+}
+
+static void
+vl_api_ipsec_sa_originator_dump_t_handler (vl_api_ipsec_sa_originator_dump_t *
+					   mp)
+{
+#if WITH_LIBSSL > 0
+  vl_api_registration_t *reg;
+
+  reg = vl_api_client_index_to_registration (mp->client_index);
+  if (!reg)
+    return;
+
+  ipsec_dump_walk_ctx_t ctx = {
+    .reg = reg,
+    .context = mp->context,
+    .id = ntohl (mp->originator),
+  };
+
+  ipsec_sa_walk (send_ipsec_sa_originator_details, &ctx);
+
+#else
+  clib_warning ("unimplemented");
+#endif
+}
+
+
+static void
+send_ipsec_spd_originator_details (ipsec_spd_t * p,
+				   vl_api_registration_t * reg, u32 context)
+{
+  vl_api_ipsec_spd_originator_details_t *mp;
+
+  mp = vl_msg_api_alloc (sizeof (*mp));
+  clib_memset (mp, 0, sizeof (*mp));
+  mp->_vl_msg_id = ntohs (VL_API_IPSEC_SPD_ORIGINATOR_DETAILS);
+  mp->context = context;
+  mp->spd_id = htonl (p->id);
+  mp->originator = htonl (p->originator);
+
+  vl_api_send_msg (reg, (u8 *) mp);
+}
+
+static void
+vl_api_ipsec_spd_originator_dump_t_handler (vl_api_ipsec_spd_originator_dump_t
+					    * mp)
+{
+#if WITH_LIBSSL > 0
+  vl_api_registration_t *reg;
+  ipsec_main_t *im = &ipsec_main;
+  ipsec_spd_t *spd;
+  u32 orig;
+
+  reg = vl_api_client_index_to_registration (mp->client_index);
+  if (!reg)
+    return;
+
+  orig = ntohl (mp->originator);
+
+  /* *INDENT-OFF* */
+  pool_foreach (spd, im->spds, ({
+    if (orig == ~0 || orig == spd->originator)
+      send_ipsec_spd_originator_details (spd, reg, mp->context);
+  }));
+  /* *INDENT-ON* */
+#else
+  clib_warning ("unimplemented");
+#endif
+}
+
 /*
  * ipsec_api_hookup
  * Add vpe's API message handlers to the table.
@@ -1101,6 +1223,15 @@ ipsec_api_hookup (vlib_main_t * vm)
 }
 
 VLIB_API_INIT_FUNCTION (ipsec_api_hookup);
+
+static clib_error_t *
+ipsec_originator_reaper (u32 client_index)
+{
+  hash_unset (ipsec_main.originator_by_client_index, client_index);
+  return NULL;
+}
+
+VL_MSG_API_REAPER_FUNCTION (ipsec_originator_reaper);
 
 /*
  * fd.io coding-style-patch-verification: ON

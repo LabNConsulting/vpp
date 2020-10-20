@@ -433,6 +433,7 @@ ipsec_init (vlib_main_t * vm)
   im->spd_index_by_spd_id = hash_create (0, sizeof (uword));
   im->sa_index_by_sa_id = hash_create (0, sizeof (uword));
   im->spd_index_by_sw_if_index = hash_create (0, sizeof (uword));
+  im->originator_by_client_index = hash_create (0, sizeof (uword));
 
   vlib_node_t *node = vlib_get_node_by_name (vm, (u8 *) "error-drop");
   ASSERT (node);

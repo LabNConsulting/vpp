@@ -215,7 +215,7 @@ format_ipsec_spd (u8 * s, va_list * args)
 
   spd = pool_elt_at_index (im->spds, si);
 
-  s = format (s, "spd %u", spd->id);
+  s = format (s, "spd %u orig %u", spd->id, spd->originator);
 
 #define _(v, n)                                                 \
   s = format (s, "\n %s:", n);                                  \
@@ -315,11 +315,12 @@ format_ipsec_sa (u8 * s, va_list * args)
 
   s =
     format (s,
-	    "[%d] sa %u (0x%x) spi %u (0x%08x) mode %s%s%s protocol:%s flags:[%U]",
+	    "[%d] sa %u (0x%x) spi %u (0x%08x) mode %s%s%s protocol:%s flags:[%U] orig %u",
 	    sai, sa->id, sa->id, sa->spi, sa->spi, sa->tfs_type ? "tfs " : "",
 	    ipsec_sa_is_set_IS_TUNNEL (sa) ? "tunnel" : "transport",
 	    ipsec_sa_is_set_IS_TUNNEL_V6 (sa) ? "-ip6" : "",
-	    sa->protocol ? "esp" : "ah", format_ipsec_sa_flags, sa->flags);
+	    sa->protocol ? "esp" : "ah", format_ipsec_sa_flags, sa->flags,
+	    sa->originator);
 
   if (!(flags & IPSEC_FORMAT_DETAIL))
     goto done;

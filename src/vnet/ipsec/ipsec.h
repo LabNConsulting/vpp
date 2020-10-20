@@ -144,6 +144,7 @@ typedef struct
   uword *ipsec_if_by_sw_if_index;
   uword *tun4_protect_by_key;
   uword *tun6_protect_by_key;
+  uword *originator_by_client_index;
 
   /* node indices */
   u32 error_drop_node_index;

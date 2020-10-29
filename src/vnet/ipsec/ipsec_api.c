@@ -352,43 +352,49 @@ static void vl_api_ipsec_sad_entry_add_del_t_handler
 #if WITH_LIBSSL > 0
 
   id = ntohl (mp->entry.sad_id);
-  spi = ntohl (mp->entry.spi);
-
-  rv = ipsec_proto_decode (mp->entry.protocol, &proto);
-
-  if (rv)
-    goto out;
-
-  rv = ipsec_crypto_algo_decode (mp->entry.crypto_algorithm, &crypto_alg);
-
-  if (rv)
-    goto out;
-
-  rv = ipsec_integ_algo_decode (mp->entry.integrity_algorithm, &integ_alg);
-
-  if (rv)
-    goto out;
-
-  ipsec_key_decode (&mp->entry.crypto_key, &crypto_key);
-  ipsec_key_decode (&mp->entry.integrity_key, &integ_key);
-
-  flags = ipsec_sa_flags_decode (mp->entry.flags);
-
-  ip_address_decode (&mp->entry.tunnel_src, &tun_src);
-  ip_address_decode (&mp->entry.tunnel_dst, &tun_dst);
-
-  tfs_type = ntohl (mp->entry.tfs_type);
-  tfs_config =
-    ipsec_tfs_config_decode (mp->entry.tfs_config, mp->entry.tfs_config_len);
 
   if (mp->is_add)
-    rv = ipsec_sa_add_and_lock (id, spi, proto,
-				crypto_alg, &crypto_key,
-				integ_alg, &integ_key, flags, tfs_type,
-				tfs_config,
-				0, mp->entry.salt, &tun_src, &tun_dst,
-				&sa_index, htons (mp->entry.udp_src_port),
-				htons (mp->entry.udp_dst_port));
+    {
+
+      spi = ntohl (mp->entry.spi);
+
+      rv = ipsec_proto_decode (mp->entry.protocol, &proto);
+
+      if (rv)
+	goto out;
+
+      rv = ipsec_crypto_algo_decode (mp->entry.crypto_algorithm, &crypto_alg);
+
+      if (rv)
+	goto out;
+
+      rv =
+	ipsec_integ_algo_decode (mp->entry.integrity_algorithm, &integ_alg);
+
+      if (rv)
+	goto out;
+
+      ipsec_key_decode (&mp->entry.crypto_key, &crypto_key);
+      ipsec_key_decode (&mp->entry.integrity_key, &integ_key);
+
+      flags = ipsec_sa_flags_decode (mp->entry.flags);
+
+      ip_address_decode (&mp->entry.tunnel_src, &tun_src);
+      ip_address_decode (&mp->entry.tunnel_dst, &tun_dst);
+
+      tfs_type = ntohl (mp->entry.tfs_type);
+      tfs_config =
+	ipsec_tfs_config_decode (mp->entry.tfs_config,
+				 mp->entry.tfs_config_len);
+
+      rv = ipsec_sa_add_and_lock (id, spi, proto,
+				  crypto_alg, &crypto_key,
+				  integ_alg, &integ_key, flags, tfs_type,
+				  tfs_config,
+				  0, mp->entry.salt, &tun_src, &tun_dst,
+				  &sa_index, htons (mp->entry.udp_src_port),
+				  htons (mp->entry.udp_dst_port));
+    }
   else
     rv = ipsec_sa_unlock_id (id);
 

@@ -328,7 +328,7 @@ format_ipsec_sa (u8 * s, va_list * args)
       if (!ipsec_sa_is_set_IS_INBOUND (sa))
 	{
 	  s =
-	    format (s, "\n    resovle via fib-entry: %d",
+	    format (s, "\n    resolve via fib-entry: %d",
 		    sa->fib_entry_index);
 	  s = format (s, "\n    stacked on:");
 	  s = format (s, "\n      %U", format_dpo_id, &sa->dpo, 6);

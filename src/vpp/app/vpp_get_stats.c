@@ -25,6 +25,7 @@
 bool f_machine = false;
 bool f_summary = false;
 bool f_timestamp = false;
+bool f_no_zeros = false;
 f64 o_interval = 1;
 uint o_only_index = ~0;
 
@@ -67,6 +68,8 @@ static void dump_stats_res (stat_segment_data_t *res)
             for (j = 0; j < vec_len (counter); j++)
               if (o_only_index != ~0 && o_only_index != j)
                 continue;
+              else if (!counter[j] && f_no_zeros)
+                continue;
               else if (f_machine)
                 fformat (stdout, "%s%d:%d:%llu:%s\n", timestamp, res[i].type,
                          j, counter[j], res[i].name);
@@ -79,6 +82,8 @@ static void dump_stats_res (stat_segment_data_t *res)
           for (k = 0; k < vec_len (res[i].simple_counter_vec); k++)
             for (j = 0; j < vec_len (res[i].simple_counter_vec[k]); j++)
               if (o_only_index != ~0 && o_only_index != j)
+                continue;
+              else if (!res[i].simple_counter_vec[k][j] && f_no_zeros)
                 continue;
               else if (f_machine)
                 fformat (stdout, "%s%d:%d:%d:%llu:%s\n", timestamp,
@@ -107,6 +112,8 @@ static void dump_stats_res (stat_segment_data_t *res)
             for (j = 0; j < vec_len (vcounter); j++)
               if (o_only_index != ~0 && o_only_index != j)
                 continue;
+              else if (!vcounter[j].packets && f_no_zeros)
+                continue;
               else if (f_machine)
                 fformat (stdout, "%s%d:%d:%llu:%llu:%s\n", timestamp,
                          res[i].type, j, vcounter[j].packets,
@@ -121,6 +128,8 @@ static void dump_stats_res (stat_segment_data_t *res)
           for (k = 0; k < vec_len (res[i].combined_counter_vec); k++)
             for (j = 0; j < vec_len (res[i].combined_counter_vec[k]); j++)
               if (o_only_index != ~0 && o_only_index != j)
+                continue;
+              else if (!res[i].combined_counter_vec[k][j].packets && f_no_zeros)
                 continue;
               else if (f_machine)
                 fformat (stdout, "%s%d:%d:%d:%llu:%llu:%s\n", timestamp,
@@ -140,7 +149,9 @@ static void dump_stats_res (stat_segment_data_t *res)
             u64 ecounter = 0;
             for (j = 0; j < vec_len (res[i].error_vector); j++)
               ecounter += res[i].error_vector[j];
-            if (f_machine)
+            if (!ecounter && f_no_zeros)
+              continue;
+            else if (f_machine)
               fformat (stdout, "%s%d:%llu:%s\n", timestamp, res[i].type,
                        ecounter, res[i].name);
             else
@@ -149,7 +160,9 @@ static void dump_stats_res (stat_segment_data_t *res)
           }
         else
           for (j = 0; j < vec_len (res[i].error_vector); j++)
-            if (f_machine)
+            if (!res[i].error_vector[j] && f_no_zeros)
+              continue;
+            else if (f_machine)
               fformat (stdout, "%s%d:%d:%llu:%s\n", timestamp, res[i].type, j,
                       res[i].error_vector[j], res[i].name);
             else
@@ -271,6 +284,8 @@ int main (int argc, char **argv)
         f_machine = true;
       else if (unformat (a, "only-index %u", &o_only_index))
         ;
+      else if (unformat (a, "no-zeros"))
+        f_no_zeros = true;
       else if (unformat (a, "summary"))
         f_summary = true;
       else if (unformat (a, "timestamp"))

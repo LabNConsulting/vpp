@@ -473,6 +473,7 @@ dpdk_crypto_session_disposal (crypto_session_disposal_t * v, u64 ts)
 	  clear_and_free_obj (drv_session);
 
 	  set_session_private_data (s->session, drv_id, NULL);
+          s->session->sess_data[drv_id].refcnt--;
 	}
 
       if (rte_mempool_from_obj(s->session))

@@ -65,7 +65,7 @@ mrvl_pp2_main_init ()
   u8 *s = 0;
 
   rv = mv_sys_dma_mem_init (MV_SYS_DMA_MEM_SZ);
-  if (rv)
+  if (rv && rv != -EEXIST)
     return clib_error_return (0, "mv_sys_dma_mem_init failed, rv = %u", rv);
 
   init_params.hif_reserved_map = ((1 << NUM_HIFS_RSVD) - 1);

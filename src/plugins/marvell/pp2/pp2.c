@@ -24,6 +24,7 @@
 #include <vlib/unix/unix.h>
 #include <vppinfra/linux/syscall.h>
 #include <vnet/plugin/plugin.h>
+#include <vnet/ethernet/ethernet.h>
 #include <marvell/pp2/pp2.h>
 
 /* size of DMA memory used by musdk (not used for buffers) */
@@ -69,6 +70,10 @@ mrvl_pp2_main_init ()
     return clib_error_return (0, "mv_sys_dma_mem_init failed, rv = %u", rv);
 
   init_params.hif_reserved_map = ((1 << NUM_HIFS_RSVD) - 1);
+  /*
+   * XXX dpdk uses 0x7 here which maps to 3 pools, this code maps to 7 pools,
+   * there are 16 pools total in the HW.
+   */
   init_params.bm_pool_reserved_map = ((1 << NUM_BPOOLS_RSVD) - 1);
   rv = pp2_init (&init_params);
   if (rv)
@@ -88,12 +93,29 @@ mrvl_pp2_main_init ()
     vec_reset_length (s);
     s = format (s, "hif-%d%c", NUM_HIFS_RSVD + i, 0);
     hif_params.match = (char *) s;
+    /*
+     * This is the per CPU TX aggregation (sw) queue size. The TxAggQ is used by
+     * a single CPU (thread) to queue packets to all the actual HW txqs. Each
+     * physical txq is loaded by PPIO from this aggregation queue. The funcspec
+     * indicates this queue can be shallow. The 2048 value here is probably
+     * arbitrary.
+     */
     hif_params.out_size = 2048;	/* FIXME */
     if (pp2_hif_init (&hif_params, &ptd->hif))
       {
 	err = clib_error_return (0, "hif '%s' init failed", s);
 	goto done;
       }
+
+    vlib_buffer_t *bt = &ptd->buffer_template;
+    clib_memset (bt, 0, sizeof (vlib_buffer_t));
+    bt->flags = VLIB_BUFFER_TOTAL_LENGTH_VALID;
+    bt->total_length_not_including_first_buffer = 0;
+    vnet_buffer (bt)->sw_if_index[VLIB_TX] = (u32) ~ 0;
+    bt->ref_count = 1;
+
+    mrvl_pp2_debug ("%s: initialized %s size %u for thread %u", __FUNCTION__,
+		    s, hif_params.out_size, i);
   }
 
 done:
@@ -138,13 +160,11 @@ mrvl_pp2_delete_if (mrvl_pp2_if_t * ppif)
   /* free buffers hanging in the tx ring */
   vec_foreach (outq, ppif->outqs)
     {
-      while (outq->tail < outq->head)
-	{
-	  u16 slot = outq->tail & (outq->size - 1);
-	  vlib_buffer_free (vm, outq->buffers + slot, 1);
-	  outq->tail++;
-	}
-      vec_free (outq->buffers);
+      if (outq->n_enq)
+        vlib_buffer_free_from_ring (vm, outq->buffers,
+                                    mrvl_pp2_outq_start (outq),
+                                    vec_len(outq->buffers), outq->n_enq);
+      vec_free(outq->buffers);
     }
   vec_free (ppif->outqs);
 
@@ -193,6 +213,8 @@ mrvl_pp2_create_if (mrvl_pp2_create_if_args_t * args)
   u8 n_outqs, n_inqs = 1;
   int i;
 
+  mrvl_pp2_debug ("%s: create %s", __FUNCTION__, args->name);
+
   if (tm->n_vlib_mains > PP2_PPIO_MAX_NUM_OUTQS)
     {
       args->rv = VNET_API_ERROR_INIT_FAILED;
@@ -226,12 +248,16 @@ mrvl_pp2_create_if (mrvl_pp2_create_if_args_t * args)
     {
       mrvl_pp2_inq_t *inq = vec_elt_at_index (ppif->inqs, i);
       inq->size = args->rx_q_sz;
+      mrvl_pp2_debug ("%s: %s initialized inq[%u] size %u",
+		      __FUNCTION__, args->name, i, inq->size);
     }
   for (i = 0; i < n_outqs; i++)
     {
       mrvl_pp2_outq_t *outq = vec_elt_at_index (ppif->outqs, i);
-      outq->size = args->tx_q_sz;
-      vec_validate_aligned (outq->buffers, outq->size, CLIB_CACHE_LINE_BYTES);
+      vec_validate_aligned(outq->buffers, args->tx_q_sz - 1,
+                           CLIB_CACHE_LINE_BYTES);
+      mrvl_pp2_debug ("%s: %s initialized outq[%u] size %u",
+		      __FUNCTION__, args->name, i, vec_len(outq->buffers));
     }
 
   if (pp2_netdev_get_ppio_info ((char *) args->name, &pp2_id, &port_id))
@@ -241,6 +267,9 @@ mrvl_pp2_create_if (mrvl_pp2_create_if_args_t * args)
 				       args->name);
       goto error;
     }
+
+  mrvl_pp2_debug ("%s: %s ppio info pp2_id %u port_id %u",
+		  __FUNCTION__, args->name, pp2_id, port_id);
 
   /* FIXME bpool bit select per pp */
   s = format (s, "pool-%d:%d%c", pp2_id, pp2_id + 8, 0);
@@ -253,6 +282,12 @@ mrvl_pp2_create_if (mrvl_pp2_create_if_args_t * args)
       args->error = clib_error_return (0, "bpool '%s' init failed", s);
       goto error;
     }
+  /* There's only a single NUMA node for this arch */
+  ppif->inqs[0].buffer_pool_index =
+    vlib_buffer_pool_get_default_for_numa (vm, vlib_get_main()->numa_node);
+
+  mrvl_pp2_debug ("%s: %s initialized bpool %s of %u len buffers",
+		  __FUNCTION__, args->name, s, bpool_params.buff_len);
   vec_reset_length (s);
 
   s = format (s, "ppio-%d:%d%c", pp2_id, port_id, 0);
@@ -276,6 +311,26 @@ mrvl_pp2_create_if (mrvl_pp2_create_if_args_t * args)
       args->error = clib_error_return (0, "ppio '%s' init failed", s);
       goto error;
     }
+  mrvl_pp2_debug ("%s: %s initialized ppio %s n_inq %u n_outq %u",
+		  __FUNCTION__, args->name, s, n_inqs, n_outqs);
+
+  for (i = 0; i < n_outqs; i++)
+    {
+      mrvl_pp2_per_thread_data_t *ptd = vec_elt_at_index (ppm->per_thread_data,
+                                                          i);
+      u16 num = 0;
+      do {
+        udelay(10);
+        int err = pp2_ppio_get_num_outq_done (ppif->ppio, ptd->hif, i, &num);
+        if (err)
+          {
+            clib_warning("error getting num done %u\n", err);
+            abort();
+          }
+        mrvl_pp2_debug("Draining TXQ %u: num %u\n", i, num);
+      } while(num);
+    }
+
   vec_reset_length (s);
 
   if (pp2_ppio_get_mac_addr (ppif->ppio, mac_addr))
@@ -308,6 +363,11 @@ mrvl_pp2_create_if (mrvl_pp2_create_if_args_t * args)
 				 VNET_HW_INTERFACE_RX_MODE_POLLING);
   vnet_hw_interface_set_flags (vnm, ppif->hw_if_index,
 			       VNET_HW_INTERFACE_FLAG_LINK_UP);
+
+  mrvl_pp2_debug
+    ("%s: %s Set UP, POLLING hw_if_index %u sw_if_index %u mac %U",
+     __FUNCTION__, args->name, ppif->hw_if_index, ppif->sw_if_index,
+     format_mac_address, mac_addr);
   goto done;
 
 error:
@@ -386,7 +446,6 @@ VNET_DEVICE_CLASS (mrvl_pp2_device_class,) =
   .name = "Marvell PPv2 interface",
   .format_device_name = format_mrvl_pp2_interface_name,
   .format_device = format_mrvl_pp2_interface,
-  .tx_function = mrvl_pp2_interface_tx,
   .tx_function_n_errors = MRVL_PP2_TX_N_ERROR,
   .tx_function_error_strings = mrvl_pp2_tx_func_error_strings,
   .admin_up_down_function = mrvl_pp2_interface_admin_up_down,

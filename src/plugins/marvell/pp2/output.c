@@ -27,9 +27,29 @@
 
 #include <marvell/pp2/pp2.h>
 
-uword
-mrvl_pp2_interface_tx (vlib_main_t * vm,
-		       vlib_node_runtime_t * node, vlib_frame_t * frame)
+
+static_always_inline u32
+mrvl_pp2_get_num_outq_done(mrvl_pp2_per_thread_data_t *ptd, mrvl_pp2_if_t *ppif, u8 qid)
+{
+  u16 num;
+  int err = pp2_ppio_get_num_outq_done (ppif->ppio, ptd->hif, qid, &num);
+  if (PREDICT_FALSE(err))
+    abort();
+  return num;
+}
+
+static_always_inline
+u16 mrvl_pp2_send(struct pp2_ppio *ppio, struct pp2_hif *hif, u8 qid, struct pp2_ppio_desc *descs, u16 num)
+{
+  int err = pp2_ppio_send(ppio, hif, qid, descs, &num);
+  if (PREDICT_FALSE(err))
+    abort();
+  return num;
+}
+
+VNET_DEVICE_CLASS_TX_FN(mrvl_pp2_device_class) (vlib_main_t * vm,
+                                                vlib_node_runtime_t * node,
+                                                vlib_frame_t * frame)
 {
   mrvl_pp2_main_t *ppm = &mrvl_pp2_main;
   vnet_interface_output_runtime_t *rd = (void *) node->runtime_data;
@@ -42,24 +62,24 @@ mrvl_pp2_interface_tx (vlib_main_t * vm,
   u32 *buffers = vlib_frame_vector_args (frame);
   u16 n_desc = frame->n_vectors, n_left = n_desc, n_sent = n_desc, n_done;
   struct pp2_ppio_desc *d;
-  u16 mask = outq->size - 1;
+  u16 qsize = _vec_len(outq->buffers);
 
-  if (PREDICT_FALSE (pp2_ppio_get_num_outq_done (ppif->ppio, ptd->hif, qid,
-						 &n_done)))
-    {
-      n_done = 0;
-      vlib_error_count (vm, node->node_index,
-			MRVL_PP2_TX_ERROR_PPIO_GET_NUM_OUTQ_DONE, 1);
-    }
-
+  n_done = mrvl_pp2_get_num_outq_done (ptd, ppif, qid);
   if (n_done)
     {
-      u16 n_free = clib_min (n_done, outq->size - (outq->tail & mask));
-      vlib_buffer_free (vm, outq->buffers + (outq->tail & mask), n_free);
-      if (PREDICT_FALSE (n_free < n_done))
-	vlib_buffer_free (vm, outq->buffers, n_done - n_free);
-      outq->tail += n_done;
+      if (PREDICT_FALSE(n_done > outq->n_enq))
+        {
+          clib_warning("done %u > n_enq %u", n_done, outq->n_enq);
+          abort();
+        }
+      vlib_buffer_free_from_ring (vm, outq->buffers, mrvl_pp2_outq_start(outq),
+                                  qsize, n_done);
+      outq->n_enq -= n_done;
     }
+
+  u16 capacity = qsize - outq->n_enq;
+  if (n_left > capacity)
+      n_left = capacity;
 
   vec_validate_aligned (ptd->descs, n_left, CLIB_CACHE_LINE_BYTES);
   d = ptd->descs;
@@ -78,38 +98,44 @@ mrvl_pp2_interface_tx (vlib_main_t * vm,
       n_left--;
     }
 
-  if (pp2_ppio_send (ppif->ppio, ptd->hif, qid, ptd->descs, &n_sent))
-    {
-      n_sent = 0;
-      vlib_error_count (vm, node->node_index, MRVL_PP2_TX_ERROR_PPIO_SEND, 1);
-    }
+  n_sent = mrvl_pp2_send (ppif->ppio, ptd->hif, qid, ptd->descs, n_sent);
 
   /* free unsent buffers */
   if (PREDICT_FALSE (n_sent != n_desc))
     {
+      mrvl_pp2_debug("Failed to send %u packets", n_desc - n_sent);
       vlib_buffer_free (vm, vlib_frame_vector_args (frame) + n_sent,
-			frame->n_vectors - n_sent);
+			n_desc - n_sent);
       vlib_error_count (vm, node->node_index, MRVL_PP2_TX_ERROR_NO_FREE_SLOTS,
-			frame->n_vectors - n_sent);
+			n_desc - n_sent);
     }
 
   /* store buffer index for each enqueued packet into the ring
      so we can know what to free after packet is sent */
   if (n_sent)
     {
-      u16 slot = outq->head & mask;
       buffers = vlib_frame_vector_args (frame);
-      u16 n_copy = clib_min (outq->size - slot, n_sent);
-
-      vlib_buffer_copy_indices (outq->buffers + slot, buffers, n_copy);
-      if (PREDICT_FALSE (n_copy < n_sent))
-	clib_memcpy_fast (outq->buffers, buffers + n_copy,
-			  (n_sent - n_copy) * sizeof (u32));
-
-      outq->head += n_sent;
+      if (PREDICT_TRUE(outq->next + n_sent <= qsize))
+        {
+          vlib_buffer_copy_indices (outq->buffers + outq->next, buffers, n_sent);
+          outq->next += n_sent;
+          if (outq->next == qsize)
+            outq->next = 0;
+        }
+      else
+        {
+          u16 n_copy = qsize - outq->next;
+          vlib_buffer_copy_indices (outq->buffers + outq->next, buffers, n_copy);
+          vlib_buffer_copy_indices (outq->buffers, buffers + n_copy,
+                                    n_sent - n_copy);
+          outq->next = n_sent - n_copy;
+          if (PREDICT_FALSE(outq->next >= qsize))
+            abort();
+        }
+      outq->n_enq += n_sent;
     }
 
-  return n_sent;
+  return n_desc;
 }
 
 /*

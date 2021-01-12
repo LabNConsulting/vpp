@@ -31,6 +31,10 @@ if(MUSDK_INCLUDE_DIR AND MUSDK_LIB)
     pp2/pp2.c
     pp2/pp2_api.c
 
+    MULTIARCH_SOURCES
+    pp2/input.c
+    pp2/output.c
+
     API_FILES
     pp2/pp2.api
 

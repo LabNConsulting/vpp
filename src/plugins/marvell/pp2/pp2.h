@@ -31,20 +31,35 @@
 #include <drivers/mv_pp2_bpool.h>
 #include <drivers/mv_pp2_ppio.h>
 
-typedef struct
-{
-  CLIB_CACHE_LINE_ALIGN_MARK (cacheline0);
-  u16 size;
-  struct pp2_bpool *bpool;
-} mrvl_pp2_inq_t;
+#define MRVL_PP2_DEBUG
+//#define MRVL_PP2_PKT_DEBUG
+
+#define mrvl_pp2_log(...) clib_warning (__VA_ARGS__)
+#ifdef MRVL_PP2_DEBUG
+#define mrvl_pp2_debug(...) clib_warning (__VA_ARGS__)
+#ifdef MRVL_PP2_PKT_DEBUG
+#define mrvl_pp2_pkt_debug(...) clib_warning (__VA_ARGS__)
+#else /* MRVL_PP2_PKT_DEBUG */
+#define mrvl_pp2_pkt_debug(...)
+#endif /* MRVL_PP2_PKT_DEBUG */
+#else /* MRVL_PP2_DEBUG */
+#define mrvl_pp2_debug(...)
+#define mrvl_pp2_pkt_debug(...)
+#endif /* MRVL_PP2_DEBUG */
 
 typedef struct
 {
   CLIB_CACHE_LINE_ALIGN_MARK (cacheline0);
   u16 size;
+  u8 buffer_pool_index;
+  struct pp2_bpool *bpool;
+} mrvl_pp2_inq_t;
+
+typedef struct {
+  CLIB_CACHE_LINE_ALIGN_MARK (cacheline0);
+  u16 next;
+  u16 n_enq;
   u32 *buffers;
-  u16 head;
-  u16 tail;
 } mrvl_pp2_outq_t;
 
 typedef struct
@@ -63,15 +78,36 @@ typedef struct
   u32 hw_if_index;
 } mrvl_pp2_if_t;
 
-#define MRVL_PP2_BUFF_BATCH_SZ VLIB_FRAME_SIZE
+static inline u32
+mrvl_pp2_outq_start(mrvl_pp2_outq_t *q)
+{
+  if (q->n_enq == 0)
+    return 0;
+  else if (q->n_enq > q->next)
+    return _vec_len (q->buffers) + q->next - q->n_enq;
+  else
+    return q->next - q->n_enq;
+}
+
+static inline void
+mrvl_pp2_outq_ndeq(mrvl_pp2_outq_t *q, u32 count)
+{
+  ASSERT(count < q->n_enq);
+  q->n_enq -= count;
+}
+
+#define mrv_pp2_outq_size(q) _vec_len((q)->buffers)
 
 typedef struct
 {
   CLIB_CACHE_LINE_ALIGN_MARK (cacheline0);
   struct pp2_hif *hif;
   struct pp2_ppio_desc *descs;
-  struct buff_release_entry bre[MRVL_PP2_BUFF_BATCH_SZ];
-  u32 buffers[VLIB_FRAME_SIZE];
+  struct buff_release_entry bre[VLIB_FRAME_SIZE];
+  u32 bi[VLIB_FRAME_SIZE];
+  int last_bppe;
+  vlib_buffer_t buffer_template;
+  vlib_buffer_t *bp[VLIB_FRAME_SIZE];
 } mrvl_pp2_per_thread_data_t;
 
 typedef struct
@@ -128,6 +164,31 @@ typedef struct
   u32 hw_if_index;
   struct pp2_ppio_desc desc;
 } mrvl_pp2_input_trace_t;
+
+#define vlib_put_next_frame(vm, node, ni, to, eto)                      \
+  do                                                                    \
+    {                                                                   \
+      if ((to))                                                         \
+        vlib_put_next_frame ((vm), (node), (ni), (eto) - (to));         \
+    }                                                                   \
+  while (0)
+
+#define vlib_put_get_next_frame(vm, node, ni, to, eto)               \
+  do                                                                 \
+    {                                                                \
+      /* Put the frame if it is full */                              \
+      if ((to) && (eto) != (to))                                     \
+	;                                                            \
+      else                                                           \
+	{                                                            \
+	  vlib_put_next_frame (vm, node, ni, to, eto);               \
+	  vlib_get_next_frame_p ((vm), (node), (ni), (to), (eto));   \
+	}                                                            \
+    }                                                                \
+  while (0)
+
+#define vlib_put_get_next_frame_a(vm, node, ni, toa, etoa)           \
+  vlib_put_get_next_frame (vm, node, ni, (toa)[(ni)], (etoa)[(ni)])
 
 extern vlib_node_registration_t mrvl_pp2_input_node;
 

@@ -106,7 +106,7 @@ format_esp_encrypt_trace (u8 * s, va_list * args)
 	  format_ipsec_crypto_alg, t->crypto_alg,
 	  format_ipsec_integ_alg, t->integ_alg);
 
-  if (t->next_header == IP_PROTOCOL_IPTFS)
+  if (t->next_header == ESP_NEXT_HEADER_IPTFS)
     s =
       format (s, "%U%U", format_white_space, indent + 2, format_iptfs_header,
 	      t->packet_data);
@@ -421,7 +421,7 @@ dpdk_esp_encrypt_inline (vlib_main_t * vm,
 		    next_hdr_type = (is_ip6 ?
 				     IP_PROTOCOL_IPV6 : IP_PROTOCOL_IP_IN_IP);
 		  else
-		    next_hdr_type = IP_PROTOCOL_IPTFS;
+		    next_hdr_type = ESP_NEXT_HEADER_IPTFS;
 		  /*
 		   * oh0->ip4.ip_version_and_header_length = 0x45;
 		   * oh0->ip4.tos = ih0->ip4.tos;
@@ -462,18 +462,14 @@ dpdk_esp_encrypt_inline (vlib_main_t * vm,
 		    sizeof (ip6_header_t) + sizeof (esp_header_t) + iv_size;
 		  vlib_buffer_advance (b0, -adv);
 		  oh6_0 = vlib_buffer_get_current (b0);
-		  if (ipsec_sa_is_IPTFS (sa0))
-		    next_hdr_type = IP_PROTOCOL_IPTFS;
+		  if (!ipsec_sa_is_IPTFS (sa0))
+                    next_hdr_type = (is_ip6 ?
+                                     IP_PROTOCOL_IPV6 :
+                                     IP_PROTOCOL_IP_IN_IP);
 		  else
-		    {
-		      next_hdr_type = (is_ip6 ?
-				       IP_PROTOCOL_IPV6 :
-				       IP_PROTOCOL_IP_IN_IP);
-		      ih6_0 = (ip6_and_esp_header_t *) ih0;
-		      oh6_0->ip6.ip_version_traffic_class_and_flow_label =
-			ih6_0->ip6.ip_version_traffic_class_and_flow_label;
-		    }
+		    next_hdr_type = ESP_NEXT_HEADER_IPTFS;
 
+                  oh6_0->ip6.ip_version_traffic_class_and_flow_label = clib_host_to_net_u32(0x60 << 24);
 		  oh6_0->ip6.protocol = IP_PROTOCOL_IPSEC_ESP;
 		  oh6_0->ip6.hop_limit = 254;
 		  oh6_0->ip6.src_address.as_u64[0] =
@@ -746,7 +742,7 @@ dpdk_esp_encrypt_inline (vlib_main_t * vm,
 	      u8 *p = vlib_buffer_get_current (b0);
 	      if (!ipsec_sa_is_set_IS_TUNNEL (sa0) && !is_tun)
 		p += vnet_buffer (b0)->ip.save_rewrite_length;
-	      if (tr->next_header == IP_PROTOCOL_IPTFS)
+	      if (tr->next_header == ESP_NEXT_HEADER_IPTFS)
 		/* Copy from the original "ip header" really the TFS header */
 		clib_memcpy_fast (tr->packet_data, ih0,
 				  sizeof (ipsec_iptfs_header_t));

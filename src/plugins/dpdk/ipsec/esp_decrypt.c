@@ -501,7 +501,7 @@ format_esp_decrypt_post_trace (u8 * s, va_list * args)
   else if (t->next_header == IP_PROTOCOL_IPV6)
     s =
       format (s, "%U%U", format_white_space, indent, format_ip6_header, ih4);
-  else if (t->next_header == IP_PROTOCOL_IPTFS)
+  else if (t->next_header == ESP_NEXT_HEADER_IPTFS)
     format (s, "%U%U", format_white_space, indent, format_iptfs_header, ih4);
   else if (t->next_header == IP_PROTOCOL_IP6_NONXT)
     format (s, "%UESP pad", format_white_space, indent, format_iptfs_header,
@@ -612,7 +612,7 @@ dpdk_esp_decrypt_post_inline (vlib_main_t * vm,
 		next0 = ESP_DECRYPT_NEXT_IP4_INPUT;
 	      else if (f0->next_header == IP_PROTOCOL_IPV6)
 		next0 = ESP_DECRYPT_NEXT_IP6_INPUT;
-	      else if (f0->next_header == IP_PROTOCOL_IPTFS)
+	      else if (f0->next_header == ESP_NEXT_HEADER_IPTFS)
 		{
 		  vnet_buffer (b0)->ipsec.iptfs_esp_seq =
 		    ((u64) sa0->seq_hi << 32) +
@@ -690,7 +690,7 @@ dpdk_esp_decrypt_post_inline (vlib_main_t * vm,
 	      tr->iv_size = iv_size;
 	      tr->trunc_size = trunc_size;
 	      tr->next_header = f0->next_header;
-	      if (tr->next_header == IP_PROTOCOL_IPTFS)
+	      if (tr->next_header == ESP_NEXT_HEADER_IPTFS)
 		clib_memcpy_fast (tr->packet_data,
 				  vlib_buffer_get_current (b0),
 				  sizeof (ipsec_iptfs_header_t));

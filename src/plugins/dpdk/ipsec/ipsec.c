@@ -1080,6 +1080,7 @@ dpdk_ipsec_main_init (vlib_main_t * vm)
 					"dpdk-esp6-decrypt",
 					"dpdk-esp6-decrypt",
                                         "dpdk-macsec-encrypt",
+                                        "dpdk-macsec-decrypt",
 					dpdk_ipsec_check_support,
 					add_del_sa_session,
 					dpdk_ipsec_enable_disable);

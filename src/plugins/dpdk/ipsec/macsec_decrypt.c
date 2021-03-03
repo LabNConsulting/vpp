@@ -47,7 +47,7 @@ typedef enum
  _(RX_PKTS, "MACSEC pkts received")				\
  _(REPLAY, "SA replayed packet")				\
  _(ENQ_FAIL, "Enqueue decrypt failed (queue full)")		\
- _(DISCARD, "Not enough crypto operations, discarding frame")	\
+ _(DISCARD, "Not enough crypto operations")			\
  _(SESSION, "Failed to get crypto session")			\
  _(NOSUP, "Cipher/Auth not supported")				\
  _(NOSA, "No matching SA")					\
@@ -158,8 +158,15 @@ dpdk_macsec_decrypt_inline (vlib_main_t * vm,
   if (ret)
     {
       vlib_node_increment_counter (vm, dpdk_macsec_decrypt_node.index,
-				     MACSEC_DECRYPT_ERROR_DISCARD, 1);
+				     MACSEC_DECRYPT_ERROR_DISCARD, n_left_from);
+
+      /* safe to assume that all packets received on same interface? */
+      MACSEC_INC_SIMPLE_COUNTER(ver_in_pkts_overrun, thread_index,
+                                vnet_buffer (vlib_get_buffer (vm, from[0]))->sw_if_index[VLIB_RX],
+                                n_left_from);
+
       /* Discard whole frame */
+      vlib_buffer_free (vm, from, n_left_from);
       return n_left_from;
     }
 
@@ -246,6 +253,9 @@ dpdk_macsec_decrypt_inline (vlib_main_t * vm,
 		vlib_node_increment_counter (vm,
 					     dpdk_macsec_decrypt_node.index,
 					     MACSEC_DECRYPT_ERROR_INVFLG, 1);
+                MACSEC_INC_SIMPLE_COUNTER(ver_in_pkts_bad_tag, thread_index,
+                                          vnet_buffer (b0)->sw_if_index[VLIB_RX], 1);
+
 		to_next[0] = bi0;
 		to_next += 1;
 		n_left_to_next -= 1;
@@ -260,6 +270,8 @@ dpdk_macsec_decrypt_inline (vlib_main_t * vm,
 	    vlib_node_increment_counter (vm,
 					 dpdk_macsec_decrypt_node.index,
 					 MACSEC_DECRYPT_ERROR_NOSA, 1);
+            MACSEC_INC_SIMPLE_COUNTER(ver_in_pkts_no_sa, thread_index,
+                                      vnet_buffer (b0)->sw_if_index[VLIB_RX], 1);
 	    to_next[0] = bi0;
 	    to_next += 1;
 	    n_left_to_next -= 1;
@@ -320,21 +332,37 @@ dpdk_macsec_decrypt_inline (vlib_main_t * vm,
 
 	  /* anti-replay check */
 	  u32	pn;
+	  int	check;
 	  clib_memcpy(&pn, (u8*)eh0 + 16, sizeof(pn));
-	  if (ipsec_sa_macsec_anti_replay_check(sa0, clib_net_to_host_u32 (pn)))
+	  check = ipsec_sa_macsec_anti_replay_check(sa0, clib_net_to_host_u32 (pn));
+          if (check == IPSEC_SA_MACSEC_REPLAY_FAIL)
 	    {
 	      clib_warning ("failed anti-replay check");
 	      vlib_node_increment_counter (vm,
-					     dpdk_macsec_decrypt_node.index,
-					     MACSEC_DECRYPT_ERROR_REPLAY, 1);
+	                                   dpdk_macsec_decrypt_node.index,
+	                                   MACSEC_DECRYPT_ERROR_REPLAY, 1);
+	      MACSEC_INC_SIMPLE_COUNTER(rxsc_in_pkts_late, thread_index,
+		                        sa_index0, 1);
+
 	      to_next[0] = bi0;
 	      to_next += 1;
 	      n_left_to_next -= 1;
 	      trace_status = MDTS_REPLAY;
 	      goto trace;
+            }
+	  else if (check == IPSEC_SA_MACSEC_REPLAY_DELAYED)
+            {
+	      MACSEC_INC_SIMPLE_COUNTER(rxsc_in_pkts_delayed, thread_index,
+		                        sa_index0, 1);
 	    }
 
 	  priv->next = DPDK_CRYPTO_INPUT_NEXT_DECRYPT_MACSEC_POST;
+
+          MACSEC_INC_SIMPLE_COUNTER(ver_in_octets_validated, thread_index,
+                                    vnet_buffer (b0)->sw_if_index[VLIB_RX],
+                                    b0->current_length);
+          MACSEC_INC_SIMPLE_COUNTER(rxsc_in_pkts_ok, thread_index,
+                                    vnet_buffer (b0)->sw_if_index[VLIB_RX], 1);
 
 	  /* FIXME multi-seg */
 	  vlib_increment_combined_counter
@@ -523,6 +551,7 @@ dpdk_macsec_decrypt_post_inline (vlib_main_t * vm,
 			      vlib_frame_t * from_frame)
 {
   u32 n_left_from, *from, *to_next = 0, next_index;
+  u32 thread_index = vm->thread_index;
   ipsec_sa_t *sa0;
   u32 sa_index0 = ~0;
   ipsec_main_t *im = &ipsec_main;
@@ -618,6 +647,10 @@ dpdk_macsec_decrypt_post_inline (vlib_main_t * vm,
 	  next0 = MACSEC_DECRYPT_NEXT_ETFS_DECAP;
 
 	  vnet_buffer (b0)->sw_if_index[VLIB_TX] = (u32) ~ 0;
+
+          MACSEC_INC_SIMPLE_COUNTER(ver_in_octets_decrypted, thread_index,
+                                    vnet_buffer (b0)->sw_if_index[VLIB_RX],
+                                    b0->current_length);
 
 	trace:
 	  if (PREDICT_FALSE (b0->flags & VLIB_BUFFER_IS_TRACED))

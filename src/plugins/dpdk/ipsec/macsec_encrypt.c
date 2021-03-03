@@ -47,7 +47,7 @@ typedef enum
  _(RX_PKTS, "MACSEC pkts received")				\
  _(SEQ_CYCLED, "Sequence number cycled")			\
  _(ENQ_FAIL, "Enqueue encrypt failed (queue full)")		\
- _(DISCARD, "Not enough crypto operations, discarding frame")	\
+ _(DISCARD, "Not enough crypto operations")			\
  _(SESSION, "Failed to get crypto session")			\
  _(NODST, "Failed to get dst buffer for chained source")	\
  _(NOSUP, "Cipher/Auth not supported")
@@ -209,8 +209,9 @@ dpdk_macsec_encrypt_inline (vlib_main_t * vm,
   if (ret)
     {
       vlib_node_increment_counter (vm, dpdk_macsec_encrypt_node.index,
-				     MACSEC_ENCRYPT_ERROR_DISCARD, 1);
+				     MACSEC_ENCRYPT_ERROR_DISCARD, n_left_from);
       /* Discard whole frame */
+      vlib_buffer_free (vm, from, n_left_from);
       return n_left_from;
     }
 
@@ -534,6 +535,21 @@ dpdk_macsec_encrypt_inline (vlib_main_t * vm,
 	    0 /* auth_off unused */, 0 /* auth_len unused */,
 	    (u8 *) aad,
 	    digest, digest_paddr);
+
+#if 0
+	  /* GMAC not supported in VPP so, at the moment, always increment
+	   * txsc_out_pkts_encrypted.
+	   */
+          MACSEC_INC_SIMPLE_COUNTER(gen_out_octets_protected, thread_index,
+                                    vnet_buffer (b0)->sw_if_index[VLIB_TX],
+                                    orig_sz);
+          MACSEC_INC_COMBINED_COUNTER(txsc_out_pkts_protected, thread_index,
+                                    vnet_buffer (b0)->sw_if_index[VLIB_TX],
+                                    1, orig_sz);
+#endif
+          MACSEC_INC_COMBINED_COUNTER(txsc_out_pkts_encrypted, thread_index,
+                                    vnet_buffer (b0)->sw_if_index[VLIB_TX],
+                                    1, orig_sz);
 
 	trace:
 	  if (PREDICT_FALSE (b0->flags & VLIB_BUFFER_IS_TRACED))

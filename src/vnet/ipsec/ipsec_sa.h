@@ -234,6 +234,7 @@ typedef struct
     u64 data;
   } async_op_data;
 
+  u64 created_time_ns;
   u32 originator;
 } ipsec_sa_t;
 

@@ -383,6 +383,7 @@ format_ipsec_sa (u8 * s, va_list * args)
 	  s = format (s, "\n      %U", format_dpo_id, &sa->dpo, 6);
 	}
     }
+  s = format (s, "\n   created at %us", sa->created_time_ns/1000000000);
 
 done:
   return (s);

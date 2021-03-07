@@ -933,6 +933,7 @@ send_ipsec_sa_details (ipsec_sa_t * sa, void *arg)
     mp->replay_window = clib_host_to_net_u64 (sa->replay_window);
 
   mp->stat_index = clib_host_to_net_u32 (sa->stat_index);
+  mp->entry.created_time_ns = clib_host_to_net_u64 (sa->created_time_ns);
 
   vl_api_send_msg (ctx->reg, (u8 *) mp);
 

@@ -472,6 +472,7 @@ define ipsec_sa_dump
     @param replay_window - bit map of seq nums received relative to last_seq if using anti-replay
     @param stat_index - index for the SA in the stats segment @ /net/ipsec/sa
     @param udp_encap - 1 if UDP encap enabled, 0 otherwise
+    @param created_time_ns - system time at which SA was created, ns since epoch
 */
 define ipsec_sa_details {
   u32 context;

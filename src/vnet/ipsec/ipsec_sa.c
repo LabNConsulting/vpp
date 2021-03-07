@@ -19,6 +19,7 @@
 #include <vnet/fib/fib_table.h>
 #include <vnet/fib/fib_entry_track.h>
 #include <vnet/ipsec/ipsec_tun.h>
+#include <vppinfra/time.h>
 
 /**
  * @brief
@@ -215,6 +216,7 @@ ipsec_sa_add_and_lock (u32 id,
   sa->salt = salt;
   sa->encrypt_thread_index = (vlib_num_workers ())? ~0 : 0;
   sa->decrypt_thread_index = (vlib_num_workers ())? ~0 : 0;
+  sa->created_time_ns = unix_time_now_nsec();
   if (integ_alg != IPSEC_INTEG_ALG_NONE)
     {
       ipsec_sa_set_integ_alg (sa, integ_alg);
@@ -436,6 +438,7 @@ ipsec_sa_macsec_add(
   sa->encrypt_thread_index = (vlib_num_workers ())? ~0 : 0;
   sa->decrypt_thread_index = (vlib_num_workers ())? ~0 : 0;
 
+  sa->created_time_ns = unix_time_now_nsec();
   ipsec_sa_set_crypto_alg (sa, crypto_alg);
   sa->async_op_data.crypto_async_enc_op_id = async_enc_op_id;
   sa->async_op_data.crypto_async_dec_op_id = async_dec_op_id;

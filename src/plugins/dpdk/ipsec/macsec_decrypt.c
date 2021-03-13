@@ -266,7 +266,6 @@ dpdk_macsec_decrypt_inline (vlib_main_t * vm,
 
 	  if (BV(clib_bihash_search)(&macsec_main.decrypt_sa_table, &kv, &kv)) {
 	    /* search failed, we have no SA. */
-	    clib_warning ("No SA for SCI %ul", kv.key);
 	    vlib_node_increment_counter (vm,
 					 dpdk_macsec_decrypt_node.index,
 					 MACSEC_DECRYPT_ERROR_NOSA, 1);

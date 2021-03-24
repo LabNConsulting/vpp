@@ -45,8 +45,6 @@ typedef void (*tfs_encrypt_debug_cb_t) (vlib_main_t * vm, ipsec_sa_t * sa,
 					void *esphdr, vlib_buffer_t * srcb,
 					vlib_buffer_t * dstb);
 
-typedef clib_error_t *(*etfs3_backend_update_cb_t) (vlib_main_t * vm);
-
 typedef struct
 {
   u8 *name;
@@ -87,6 +85,8 @@ typedef struct
   u32 esp6_decrypt_tun_node_index;
   u32 esp6_decrypt_tun_next_index;
   u32 esp6_encrypt_tun_node_index;
+  u32 macsec_encrypt_node_index;
+  u32 macsec_decrypt_node_index;
 } ipsec_esp_backend_t;
 
 typedef struct
@@ -161,6 +161,7 @@ typedef struct
   u32 ah6_encrypt_node_index;
   u32 ah6_decrypt_node_index;
   u32 macsec_encrypt_node_index;
+  u32 macsec_decrypt_node_index;
   /* next node indices */
   u32 esp4_encrypt_next_index;
   u32 esp4_decrypt_next_index;
@@ -196,8 +197,6 @@ typedef struct
   tfs_backend_update_cb_t tfs_backend_update_cb;
   tfs_tunnel_feature_set_cb_t tfs_tunnel_feature_set_cb;
   tfs_encrypt_debug_cb_t tfs_encrypt_debug_cb;
-
-  etfs3_backend_update_cb_t etfs3_backend_update_cb;
 
   /* pool of ah backends */
   ipsec_ah_backend_t *ah_backends;
@@ -309,6 +308,7 @@ u32 ipsec_register_esp_backend (vlib_main_t * vm, ipsec_main_t * im,
 				const char *esp6_decrypt_node_name,
 				const char *esp6_decrypt_tun_node_name,
 				const char *macsec_encrypt_node_name,
+				const char *macsec_decrypt_node_name,
 				check_support_cb_t esp_check_support_cb,
 				add_del_sa_sess_cb_t esp_add_del_sa_sess_cb,
 				enable_disable_cb_t enable_disable_cb);

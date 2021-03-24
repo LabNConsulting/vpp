@@ -36,6 +36,8 @@ typedef struct
   u8 next_header;
 } esp_footer_t;
 
+#define ESP_NEXT_HEADER_IPTFS 5
+
 /* *INDENT-OFF* */
 typedef CLIB_PACKED (struct {
   ip4_header_t ip4;

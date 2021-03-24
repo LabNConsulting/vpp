@@ -566,12 +566,12 @@ ipsec_sa_macsec_next_pn(ipsec_sa_t *sa)
 /*
  * packet number should be in host byte order
  */
+#define IPSEC_SA_MACSEC_REPLAY_OK	0
+#define IPSEC_SA_MACSEC_REPLAY_FAIL	1
+#define IPSEC_SA_MACSEC_REPLAY_DELAYED	2
 always_inline int
 ipsec_sa_macsec_anti_replay_check (ipsec_sa_t * sa, u32 pn)
 {
-    if ((sa->flags & IPSEC_SA_FLAG_USE_ANTI_REPLAY) == 0)
-	return 0;
-
     /*
      * For now, we will tolerate packet number wrap because the mini-macsec
      * implementation does not roll over to new SAs automatically.
@@ -584,12 +584,17 @@ ipsec_sa_macsec_anti_replay_check (ipsec_sa_t * sa, u32 pn)
      * but problems should be caught in decryption/authentication
      */
     if (PREDICT_TRUE(pn_diff > 0))
-	return 0;
+	return IPSEC_SA_MACSEC_REPLAY_OK;
+    else if (PREDICT_FALSE((sa->flags & IPSEC_SA_FLAG_USE_ANTI_REPLAY) == 0))
+        /* This is the condition for incrementing the macsec
+         * in-pkts-delayed counter.  See 802.1ae-2018 clause 10.6.5.
+         */
+        return IPSEC_SA_MACSEC_REPLAY_DELAYED;
 
     if (PREDICT_TRUE(((i64)sa->replay_macsec.window_size + (i64)pn_diff) > 0))
-	return 0;
+	return IPSEC_SA_MACSEC_REPLAY_OK;
 
-    return 1;
+    return IPSEC_SA_MACSEC_REPLAY_FAIL;
 }
 
 /*

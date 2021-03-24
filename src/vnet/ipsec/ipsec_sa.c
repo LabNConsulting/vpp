@@ -394,6 +394,9 @@ ipsec_sa_macsec_add(
   uword		*p;
   u32		sa_index;
 
+  vnet_crypto_async_op_id_t		async_enc_op_id;
+  vnet_crypto_async_op_id_t		async_dec_op_id;
+
   p = hash_get (im->sa_index_by_sa_id, id);
   if (p)
     return VNET_API_ERROR_ENTRY_ALREADY_EXISTS;
@@ -403,7 +406,13 @@ ipsec_sa_macsec_add(
    */
   switch (crypto_alg) {
   case IPSEC_CRYPTO_ALG_AES_GCM_128:
+	async_enc_op_id = VNET_CRYPTO_OP_AES_128_GCM_TAG16_AAD28_ENC;
+	async_dec_op_id = VNET_CRYPTO_OP_AES_128_GCM_TAG16_AAD28_DEC;
+	break;
   case IPSEC_CRYPTO_ALG_AES_GCM_256:
+	async_enc_op_id = VNET_CRYPTO_OP_AES_256_GCM_TAG16_AAD28_ENC;
+	async_dec_op_id = VNET_CRYPTO_OP_AES_256_GCM_TAG16_AAD28_DEC;
+	break;
     break;
   default:
     return VNET_API_ERROR_INVALID_ALGORITHM;
@@ -423,7 +432,19 @@ ipsec_sa_macsec_add(
     sa->flags |= IPSEC_SA_FLAG_IS_INBOUND;
 
   sa->id = id;
+
+  sa->encrypt_thread_index = (vlib_num_workers ())? ~0 : 0;
+  sa->decrypt_thread_index = (vlib_num_workers ())? ~0 : 0;
+
   ipsec_sa_set_crypto_alg (sa, crypto_alg);
+  sa->async_op_data.crypto_async_enc_op_id = async_enc_op_id;
+  sa->async_op_data.crypto_async_dec_op_id = async_dec_op_id;
+
+  if (im->async_mode)
+    sa->crypto_op_data = sa->async_op_data.data;
+  else
+    sa->crypto_op_data = sa->sync_op_data.data;
+
   clib_memcpy (&sa->crypto_key, ck, sizeof (sa->crypto_key));
 
   sa->crypto_key_index = vnet_crypto_key_add (vm,

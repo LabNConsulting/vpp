@@ -912,7 +912,7 @@ esp_decrypt_post_crypto (vlib_main_t * vm, vlib_node_runtime_t * node,
 	  b->current_length = pd->current_length - adv;
 	  esp_remove_tail (vm, b, lb, tail);
 	}
-      else if (next_header == IP_PROTOCOL_IPTFS)
+      else if (next_header == ESP_NEXT_HEADER_IPTFS)
         {
           /* esp_header_t *esp0 = */
           /*   (esp_header_t *) (b[0]->data + pd->current_data); */

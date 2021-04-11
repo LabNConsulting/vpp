@@ -382,6 +382,7 @@ format_hexdump_trunc (u8 * s, va_list * args)
   u8 *data = va_arg (*args, u8 *);
   uint len = va_arg (*args, uint);
   uint actual_len = va_arg (*args, uint);
+  uint tail_length = va_arg (*args, uint);
   int i, j, index = 0;
   const int line_len = 16;
   u8 *line_hex = 0;
@@ -392,11 +393,11 @@ format_hexdump_trunc (u8 * s, va_list * args)
     return s;
 
   ASSERT (actual_len >= len);
-  ASSERT (len > 16);
+  ASSERT (len > tail_length);
 
-  /* Dump first part sans the last 16 bytes */
-  if (actual_len > len)
-    len -= 16;
+  /* Dump first part sans the last N bytes */
+  if (tail_length)
+    len -= tail_length;
   i = 0;
 again:
   for (; i < len; i++)
@@ -429,7 +430,7 @@ again:
     {
       s = format (s, "%U ...\n", format_white_space, indent);
       len = actual_len;
-      i = len - 16;
+      i = len - tail_length;
       j = i & ~(16 - 1);
       index = j;
       for (; j < i; j++)

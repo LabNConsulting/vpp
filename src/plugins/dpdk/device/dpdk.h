@@ -362,6 +362,7 @@ typedef struct
   u32 buffer_index;
   u16 device_index;
   u8 queue_index;
+  u8 tail_length;
   struct rte_mbuf mb;
   /* Copy of VLIB buffer; packet data stored in pre_data. */
   vlib_buffer_t buffer;

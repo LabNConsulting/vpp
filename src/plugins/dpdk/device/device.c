@@ -109,18 +109,37 @@ dpdk_tx_trace_buffer (dpdk_main_t * dm, vlib_node_runtime_t * node,
   t0->queue_index = queue_id;
   t0->device_index = xd->device_index;
   t0->buffer_index = vlib_get_buffer_index (vm, buffer);
+  t0->tail_length = 0;
+
+  /* Copy original mbuf structure */
   clib_memcpy_fast (&t0->mb, mb, sizeof (t0->mb));
+
+  /* Copy original vlib buffer structure except for pre_data area tail */
   clib_memcpy_fast (&t0->buffer, buffer,
 		    sizeof (buffer[0]) - sizeof (buffer->pre_data));
+
+  /* Copy 1st part of vib buffer's notion of packet to copy's pre_data area */
   clib_memcpy_fast (t0->buffer.pre_data,
 		    vlib_buffer_get_current_ind (buffer),
 		    clib_min (sizeof (t0->buffer.pre_data),
 			      t0->buffer.current_length));
-  /* Copy the last 16 bytes. */
+
+  /*
+   * If packet is bigger than pre_data[], copy tail of packet to 
+   * tail of pre_data[]
+   */
+  /* Copy the last N bytes. */
   if (t0->buffer.current_length > sizeof (t0->buffer.pre_data))
-    clib_memcpy_fast (t0->buffer.pre_data + VLIB_BUFFER_PRE_DATA_SIZE - 16,
-		      vlib_buffer_get_current_ind (buffer) +
-		      buffer->current_length - 16, 16);
+    {
+      u8 tlen = 32;	/* arbitrary amount of pre_data */
+
+      ASSERT(tlen <= sizeof (t0->buffer.pre_data));
+      t0->tail_length = tlen;
+      clib_memcpy_fast (
+	  t0->buffer.pre_data + sizeof (t0->buffer.pre_data) - tlen,
+	  vlib_buffer_get_current_ind (buffer) + buffer->current_length - tlen,
+	  tlen);
+    }
 
   /* now copy the chained buffers and data */
   for (i = 0; i < extra; i++)
@@ -133,7 +152,8 @@ dpdk_tx_trace_buffer (dpdk_main_t * dm, vlib_node_runtime_t * node,
 			sizeof (buffer[0]) - sizeof (buffer->pre_data));
       clib_memcpy_fast (t0->chains[i].buffer.pre_data,
 			mb->buf_addr + mb->data_off,
-			clib_min (VLIB_BUFFER_PRE_DATA_SIZE, mb->data_len));
+			clib_min (sizeof(t0->chains[i].buffer.pre_data),
+			  mb->data_len));
     }
 }
 

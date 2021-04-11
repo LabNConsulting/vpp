@@ -49,10 +49,12 @@
 #define foreach_vnet_aead_crypto_conversion \
   _(AES_128_GCM, AEAD, AES_GCM, 12, 16, 8)  \
   _(AES_128_GCM, AEAD, AES_GCM, 12, 16, 12) \
+  _(AES_128_GCM, AEAD, AES_GCM, 12, 16, 28) \
   _(AES_192_GCM, AEAD, AES_GCM, 12, 16, 8)  \
   _(AES_192_GCM, AEAD, AES_GCM, 12, 16, 12) \
   _(AES_256_GCM, AEAD, AES_GCM, 12, 16, 8)  \
-  _(AES_256_GCM, AEAD, AES_GCM, 12, 16, 12)
+  _(AES_256_GCM, AEAD, AES_GCM, 12, 16, 12) \
+  _(AES_256_GCM, AEAD, AES_GCM, 12, 16, 28)
 
 /**
  * crypto (alg, cryptodev_alg), hash (alg, digest-size)
@@ -791,6 +793,14 @@ cryptodev_enqueue_gcm_aad_12_enc (vlib_main_t * vm,
 }
 
 static_always_inline int
+cryptodev_enqueue_gcm_aad_28_enc (vlib_main_t * vm,
+				 vnet_crypto_async_frame_t * frame)
+{
+  return cryptodev_frame_gcm_enqueue (vm, frame,
+				      CRYPTODEV_OP_TYPE_ENCRYPT, 28);
+}
+
+static_always_inline int
 cryptodev_enqueue_gcm_aad_8_dec (vlib_main_t * vm,
 				 vnet_crypto_async_frame_t * frame)
 {
@@ -803,6 +813,13 @@ cryptodev_enqueue_gcm_aad_12_dec (vlib_main_t * vm,
 {
   return cryptodev_frame_gcm_enqueue (vm, frame,
 				      CRYPTODEV_OP_TYPE_DECRYPT, 12);
+}
+static_always_inline int
+cryptodev_enqueue_gcm_aad_28_dec (vlib_main_t * vm,
+				 vnet_crypto_async_frame_t * frame)
+{
+  return cryptodev_frame_gcm_enqueue (vm, frame,
+				      CRYPTODEV_OP_TYPE_DECRYPT, 28);
 }
 
 static_always_inline int

@@ -319,8 +319,6 @@ dpdk_macsec_encrypt_inline (vlib_main_t * vm,
 	    }
 
 	  op = ops[0];
-/* TBD is the following a memory leak if we fail later and don't use op? */
-	  ops += 1;
 	  ASSERT (op->status == RTE_CRYPTO_OP_STATUS_NOT_PROCESSED);
 
 	  dpdk_op_priv_t *priv = crypto_op_get_priv (op);
@@ -425,6 +423,7 @@ dpdk_macsec_encrypt_inline (vlib_main_t * vm,
 					   sa_index0, 1, orig_sz);
 
 	  res->ops[res->n_ops] = op;
+	  ops += 1;
 	  /* this is an expensive optimization just for freeing fast on error */
 	  res->bi[res->n_ops] = bi0;
 	  res->n_ops += 1;

@@ -103,13 +103,16 @@ macsec_init(vlib_main_t *vm)
     clib_error_t	*error = NULL;
 
     /*
-     * initialize receive flow table to map received SCI values
-     * to SAs
+     * initialize flow tables to map SCI values to SAs
      */
     BV (clib_bihash_init) (&macsec_main.decrypt_sa_table,
-	"decrypt SA table", DECRYPT_FLOW_TBL_NUM_BUCKETS,
-	DECRYPT_FLOW_TBL_MEMORY_SIZE);
+	"decrypt SA table", MACSEC_FLOW_TBL_NUM_BUCKETS,
+	MACSEC_FLOW_TBL_MEMORY_SIZE);
+    BV (clib_bihash_init) (&macsec_main.encrypt_sa_table,
+	"encrypt SA table", MACSEC_FLOW_TBL_NUM_BUCKETS,
+	MACSEC_FLOW_TBL_MEMORY_SIZE);
     clib_spinlock_init(&macsec_main.decrypt_sa_table_lock);
+    clib_spinlock_init(&macsec_main.encrypt_sa_table_lock);
 
     vec_validate_aligned(macsec_main.ptd, vlib_num_workers (), CLIB_CACHE_LINE_BYTES);
 

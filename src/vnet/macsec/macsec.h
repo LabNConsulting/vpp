@@ -25,8 +25,8 @@
 #include <vnet/crypto/crypto.h>
 #include <vnet/buffer.h>
 
-#define DECRYPT_FLOW_TBL_NUM_BUCKETS	32
-#define DECRYPT_FLOW_TBL_MEMORY_SIZE	(20*1024)
+#define MACSEC_FLOW_TBL_NUM_BUCKETS	32
+#define MACSEC_FLOW_TBL_MEMORY_SIZE	(20*1024)
 #define MACSEC_COUNTERS_ENABLE 1
 
 typedef struct
@@ -177,9 +177,11 @@ void macsec_validate_counters (u32, u32);
 
 typedef struct {
     BVT(clib_bihash)		decrypt_sa_table;	/* map SCI -> SA */
+    BVT(clib_bihash)		encrypt_sa_table;	/* map SCI -> SA */
     macsec_per_thread_data_t	*ptd;
 
     clib_spinlock_t		decrypt_sa_table_lock;
+    clib_spinlock_t		encrypt_sa_table_lock;
     u8				crypto_backend_present;
     u32				encrypt_async_post_next;
     u32				decrypt_async_post_next;

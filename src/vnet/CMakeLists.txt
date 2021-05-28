@@ -389,12 +389,17 @@ list(APPEND VNET_SOURCES
   macsec/macsec_format.c
   macsec/macsec_handoff.c
   macsec/macsec_sa.c
+  macsec/macsec_sc_api.c
 )
 
 list(APPEND VNET_HEADERS
   macsec/macsec.h
   macsec/macsec_format.h
   macsec/macsec_sa.h
+)
+
+list(APPEND VNET_API_FILES
+  macsec/macsec_sc.api
 )
 
 ##############################################################################

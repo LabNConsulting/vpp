@@ -1,0 +1,53 @@
+/* Hey Emacs use -*- mode: C -*-
+ *
+ * Copyright (c) 2021, LabN Consulting, L.L.C.
+ * Copyright (c) 2015 Cisco and/or its affiliates.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at:
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/* Define a simple binary API to monitor the feature */
+
+/** \brief Dump the table of MACsec SCs
+    @param client_index - opaque cookie to identify the sender
+    @param context - sender context, to match reply w/ request
+    @param ipsec_sa_index - index of SA to dump, or ~0 to retrieve all SAs
+    @param dump_generation - true if generation (tx) SCs should be returned
+    @param dump_verification - true if verification (tx) SCs should be returned
+*/
+define macsec_sc_dump {
+    u32	client_index;
+    u32	context;
+    u32	ipsec_sa_index;
+    bool dump_generation;
+    bool dump_verification;
+};
+
+/** \brief MACsec SC details structure
+    @param context - sender context, to match reply w/ request
+    @param ipsec_sa_index - index of SA to dump, or ~0 to retrieve all SAs
+    @param sci - Secure Context Identifier
+    @param is_generation - true if this sc is a macsec generation (outbound, tx) sc,
+      false if verification.
+*/
+define macsec_sc_details {
+    u32	context;
+    u32	ipsec_sa_index;
+    u8	sci[8];
+    bool is_generation;
+    /* u64 created_time;	Will be needed for MKA. */
+    /* u64 started_time;	Will be needed for MKA. */
+    /* u64 stopped-time;	Will be needed for MKA. */
+    /* u8 transmitting;		Will be needed for MKA. */
+    /* u8 receiving;		Will be needed for MKA. */
+};

@@ -76,10 +76,12 @@ typedef enum
 #define foreach_crypto_aead_async_alg \
   _(AES_128_GCM, "aes-128-gcm-aad8", 16, 16, 8) \
   _(AES_128_GCM, "aes-128-gcm-aad12", 16, 16, 12) \
+  _(AES_128_GCM, "aes-128-gcm-aad28", 16, 16, 28) \
   _(AES_192_GCM, "aes-192-gcm-aad8", 24, 16, 8) \
   _(AES_192_GCM, "aes-192-gcm-aad12", 24, 16, 12) \
   _(AES_256_GCM, "aes-256-gcm-aad8", 32, 16, 8) \
   _(AES_256_GCM, "aes-256-gcm-aad12", 32, 16, 12) \
+  _(AES_256_GCM, "aes-256-gcm-aad28", 32, 16, 28) \
   _(CHACHA20_POLY1305, "chacha20-poly1305-aad8", 32, 16, 8) \
   _(CHACHA20_POLY1305, "chacha20-poly1305-aad12", 32, 16, 12)
 

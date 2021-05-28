@@ -84,9 +84,12 @@ typedef struct
   u16	orig_size;			/* valid: METS_DSTBUF, METS_NORMAL */
   u16	trunc_size;			/* digest should always be 16 */
   u16	adv;
+  u16	handoff_length;			/* mbuf packet length to encryptor */
 
   u8	iv[12];
   u8	packet_data[64];
+  u8	packet_data_last[16];
+  u8	packet_data_digest[16];
   u8	ad[28];
 
   void	*src_mb0;
@@ -99,6 +102,13 @@ typedef struct
   struct rte_crypto_op		*p_crypto_op;
   struct rte_crypto_op		crypto_op;
   struct rte_crypto_sym_op	crypto_sym_op;
+
+  u8		*mbuf_buf_addr;
+  u8		*mbuf_buf_physaddr;
+  u8		*digest;
+  int		digest_offset_from_buf_addr;
+  u8		*digest_paddr;
+  u8		*mvsam_digest;
 
 } macsec_encrypt_trace_t;
 
@@ -121,6 +131,7 @@ format_macsec_encrypt_trace (u8 * s, va_list * args)
     }
 
     s = format (s, "%U\n", format_ethernet_header, t->packet_data);
+
     s = format (s, "%Ustatus: %s, trunc_size %u, adv %u, dst_mb0 %p\n",
 	format_white_space, indent,
 	status, t->trunc_size, t->adv, t->dst_mb0);
@@ -150,6 +161,26 @@ format_macsec_encrypt_trace (u8 * s, va_list * args)
 	format_macsec_header_force_sc, t->ad);
 
     if (t->trace_status == METS_NORMAL) {
+	/* TBD use actual packet length if shorter here: */
+	s = format (s, "%Uhandoff_length (incl ICV area): %u\n",
+	    format_white_space, indent,
+	    t->handoff_length);
+
+	s = format (s, "%UPacket Dump (initial bytes)\n%U\n",
+	    format_white_space, indent,
+	    format_hexdump, t->packet_data, sizeof(t->packet_data));
+
+	s = format (s, "%ULast %d bytes of original packet (valid for non-chain)\n%U\n",
+	    format_white_space, indent,
+	    sizeof(t->packet_data_last),
+	    format_hexdump, t->packet_data_last, sizeof(t->packet_data_last));
+
+	s = format (s, "%U%d bytes digest area (before encryption)\n%U\n",
+	    format_white_space, indent,
+	    sizeof(t->packet_data_digest),
+	    format_hexdump, t->packet_data_digest, sizeof(t->packet_data_digest));
+
+
 	/* OP has been set up. Display saved values */
 	s = format(s, "%UOP: type: %u, status: %u, sess_type: %u, addr: %p, phys_addr: %p\n",
 	    format_white_space, indent,
@@ -176,6 +207,16 @@ format_macsec_encrypt_trace (u8 * s, va_list * args)
 	    format_white_space, indent+2,
 	    t->crypto_sym_op.aead.digest.data,
 	    t->crypto_sym_op.aead.digest.phys_addr);
+	s = format(s, "%Umbuf_buf_addr %p, mbuf_buf_physaddr %p\n%Udigest %p, digest offset %d\n%Udigest_paddr %p, mvsam_digest %p\n",
+	    format_white_space, indent+2,
+	    t->mbuf_buf_addr,
+	    t->mbuf_buf_physaddr,
+	    format_white_space, indent+2,
+	    t->digest,
+	    t->digest_offset_from_buf_addr,
+	    format_white_space, indent+2,
+	    t->digest_paddr,
+	    t->mvsam_digest);
     }
 
     return s;
@@ -241,6 +282,16 @@ dpdk_macsec_encrypt_inline (vlib_main_t * vm,
 	  dpdk_macsec_encrypt_trace_status_t	trace_status = METS_NORMAL;
 	  u32			packet_number = ~0;
 
+	  u32 cipher_off;
+	  u32 cipher_len;
+	  u8 *digest = NULL;
+	  u64 digest_paddr = 0;
+	  u16 avail;
+
+	  vlib_buffer_t		*lastb0, *dst_b0;
+	  struct rte_mbuf	*lastmb0 = NULL;
+	  u32			dst_bi0 = ~0u;
+
 
 	  bi0 = from[0];
 	  from += 1;
@@ -254,6 +305,8 @@ dpdk_macsec_encrypt_inline (vlib_main_t * vm,
 	  CLIB_PREFETCH (eh0, sizeof (eh0[0]), LOAD);
 	  /* mb0 */
 	  CLIB_PREFETCH (mb0, CLIB_CACHE_LINE_BYTES, STORE);
+	  if ((b0->flags & VLIB_BUFFER_NEXT_PRESENT) == 0)
+	    CLIB_PREFETCH (vlib_buffer_get_tail (b0), 20, STORE);
 
 	  if (n_left_from > 1)
 	    {
@@ -266,6 +319,7 @@ dpdk_macsec_encrypt_inline (vlib_main_t * vm,
 	    }
 
 	  op = ops[0];
+/* TBD is the following a memory leak if we fail later and don't use op? */
 	  ops += 1;
 	  ASSERT (op->status == RTE_CRYPTO_OP_STATUS_NOT_PROCESSED);
 
@@ -280,6 +334,9 @@ dpdk_macsec_encrypt_inline (vlib_main_t * vm,
 
 	  /* we overload the ipsec sa index for macsec */
 	  sa_index0 = vnet_buffer (b0)->ipsec.sad_index;
+
+	  orig_sz = dpdk_buffer_length_in_chain_fixup (vm, b0, &lastb0);
+	  lastmb0 = rte_mbuf_from_vlib_buffer (lastb0);
 
 	  if (sa_index0 != last_sa_index)
 	    {
@@ -334,13 +391,6 @@ dpdk_macsec_encrypt_inline (vlib_main_t * vm,
 
 	      last_sa_index = sa_index0;
 	    }
-
-	  vlib_buffer_t		*lastb0, *dst_b0;
-	  struct rte_mbuf	*lastmb0;
-	  u32			dst_bi0 = ~0u;
-
-	  orig_sz = dpdk_buffer_length_in_chain_fixup (vm, b0, &lastb0);
-	  lastmb0 = rte_mbuf_from_vlib_buffer (lastb0);
 
 	  /* The NULL cipher device doesn't copy to a dest buffer */
 	  if (lastb0 != b0 && cipher_alg->alg != RTE_CRYPTO_CIPHER_NULL)
@@ -436,12 +486,6 @@ dpdk_macsec_encrypt_inline (vlib_main_t * vm,
 	  /* See ieee 802.1ae section 14.5 */
 	  clib_memcpy_fast(icb->raw, aad + 20, 8);	/* SCI */
 	  clib_memcpy(icb->raw + 8, &packet_number, 4);	/* PN */
-
-	  u32 cipher_off;
-	  u32 cipher_len;
-	  u8 *digest;
-	  u64 digest_paddr;
-	  u16 avail;
 
 	  priv->next = DPDK_CRYPTO_INPUT_NEXT_INTERFACE_OUTPUT;
 
@@ -584,6 +628,8 @@ dpdk_macsec_encrypt_inline (vlib_main_t * vm,
 	      if (dst_mb0)
 		  tr->dst_mb0_data_iova = rte_mbuf_data_iova(dst_mb0);
 
+	      tr->handoff_length = mb0->pkt_len; /* includes ICV area */
+
 	      u8 *p = vlib_buffer_get_current (b0);
 
 	      /* point at original packet header (new one is in dst mb0) */
@@ -593,6 +639,37 @@ dpdk_macsec_encrypt_inline (vlib_main_t * vm,
 	      clib_memcpy_fast (tr->packet_data, p, sizeof (tr->packet_data));
 	      if (aad)
 		  clib_memcpy_fast (tr->ad, aad, sizeof (tr->ad));
+
+	      /*
+	       * XXX This is only valid when last 16 bytes of original
+	       * packet are in same buffer as digest
+	       */
+	      p = digest - sizeof(tr->packet_data_last);
+	      clib_memcpy_fast(tr->packet_data_last, p,
+		sizeof(tr->packet_data_last));
+
+	      clib_memcpy_fast(tr->packet_data_digest, digest,
+		sizeof(tr->packet_data_digest));
+
+	      if (dst_mb0) {
+		tr->mbuf_buf_addr = dst_mb0->buf_addr;
+		tr->mbuf_buf_physaddr = (u8*)dst_mb0->buf_physaddr;
+		tr->digest = digest;
+		tr->digest_offset_from_buf_addr = digest - (u8*)dst_mb0->buf_addr;
+		tr->digest_paddr = (u8*)digest_paddr;
+	      } else {
+		if (lastmb0) {
+		    tr->mbuf_buf_addr = lastmb0->buf_addr;
+		    tr->mbuf_buf_physaddr = (u8*)lastmb0->buf_physaddr;
+		    tr->digest = digest;
+		    tr->digest_offset_from_buf_addr = digest - (u8*)lastmb0->buf_addr;
+		    tr->digest_paddr = (u8*)digest_paddr;
+
+		    /* Check mvsam driver conditions */
+		    tr->mvsam_digest = rte_pktmbuf_mtod_offset(mb0, uint8_t *,
+		      (op->sym->aead.data.offset + op->sym->aead.data.length));
+		}
+	      }
 	    }
 	}
 
@@ -627,7 +704,7 @@ VLIB_NODE_FN (dpdk_macsec_encrypt_node) (vlib_main_t * vm,
 
 VLIB_REGISTER_NODE (dpdk_macsec_encrypt_node) = {
   .name = "dpdk-macsec-encrypt",
-  .flags = VLIB_NODE_FLAG_IS_OUTPUT,
+  .flags = VLIB_NODE_FLAG_IS_OUTPUT | VLIB_NODE_FLAG_TRACE_SUPPORTED,
   .vector_size = sizeof (u32),
   .format_trace = format_macsec_encrypt_trace,
   .n_errors = ARRAY_LEN (macsec_encrypt_error_strings),

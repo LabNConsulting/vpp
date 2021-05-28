@@ -268,6 +268,15 @@ crypto_set_aead_xform (struct rte_crypto_sym_xform *xform,
     xform->aead.op = RTE_CRYPTO_AEAD_OP_ENCRYPT;
   else
     xform->aead.op = RTE_CRYPTO_AEAD_OP_DECRYPT;
+
+#if 0
+  clib_warning(
+    "algo %u, iv.offset %d, iv.length %d, aad_length %d, digest_length %d",
+    xform->aead.algo,
+    xform->aead.iv.offset, xform->aead.iv.length,
+    xform->aead.aad_length,
+    xform->aead.digest_length);
+#endif
 }
 
 static void

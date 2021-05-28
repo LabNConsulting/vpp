@@ -122,7 +122,8 @@ macsec_sa_add(u32 id, macsec_sa_t *sa, u32 *out_sa_index)
 	u8	*s = 0;
 
 	s = format(s, "key: %U\n", format_hexdump, &kv.key, sizeof(kv.key));
-	s = format(s, "key 0x%016lx (size %u), value 0x%lx\n%c",
+	s = format(s, "key %ul=0x%016lx (size %u), value 0x%lx\n%c",
+	    kv.key,
 	    kv.key,
 	    sizeof(kv.key),
 	    kv.value,

@@ -384,7 +384,10 @@ list(APPEND VNET_API_FILES lldp/lldp.api)
 ##############################################################################
 list(APPEND VNET_SOURCES
   macsec/macsec.c
+  macsec/macsec_encrypt.c
+  macsec/macsec_decrypt.c
   macsec/macsec_format.c
+  macsec/macsec_handoff.c
   macsec/macsec_sa.c
 )
 

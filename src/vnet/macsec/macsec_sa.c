@@ -81,7 +81,16 @@ macsec_sa_add(u32 id, macsec_sa_t *sa, u32 *out_sa_index)
 	kv.value = (uintptr_t)ipsec_sa_index;
 
 #if 0
-	printf("%s: key 0x%lx, value 0x%lx\n", __func__, kv.key, kv.value);
+	u8	*s = 0;
+
+	s = format(s, "key: %U\n", format_hexdump, &kv.key, sizeof(kv.key));
+	s = format(s, "key 0x%016lx (size %u), value 0x%lx\n%c",
+	    kv.key,
+	    sizeof(kv.key),
+	    kv.value,
+	    0);
+	clib_warning("%s", s);
+	vec_free(s);
 #endif
 
 	clib_spinlock_lock(&macsec_main.decrypt_sa_table_lock);
@@ -94,6 +103,8 @@ macsec_sa_add(u32 id, macsec_sa_t *sa, u32 *out_sa_index)
 	    return VNET_API_ERROR_TABLE_TOO_BIG;
 	}
     }
+
+    macsec_validate_counters(sa->if_index, ipsec_sa_index);
 
     return 0;
 }
